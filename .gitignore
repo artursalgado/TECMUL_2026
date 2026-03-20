@@ -1,0 +1,17 @@
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Ll]ogs/
+/[Uu]serSettings/
+*.csproj
+*.sln
+[Ll]ibrary/
+[Tt]emp/
+[Ll]ogs/
+[Uu]serSettings/
+My project/Library/
+My project/Temp/
+My project/Logs/
+My project/UserSettings/
+.DS_Store
