@@ -395,4 +395,21 @@ public class GameManager : MonoBehaviour
 
         return string.Empty;
     }
+
+    // --- Métodos públicos para WinCondition e GameOverScreen ---
+
+    public int GetScore() => score;
+
+    public int GetTotalSupplies() => totalSupplyCaches;
+
+    public int GetCollectedSupplies() => suppliesFound;
+
+    public void TriggerVictory()
+    {
+        if (UIManager.Instance != null)
+            UIManager.Instance.ShowMessage("EXTRACTION SUCCESSFUL! You win!");
+
+        if (GameOverScreen.Instance != null)
+            GameOverScreen.Instance.ShowVictory(score);
+    }
 }
