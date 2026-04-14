@@ -196,7 +196,8 @@ public class PlayerInventory : MonoBehaviour
             return;
         }
 
-        UIManager.Instance.UpdateInventory(GetSummary());
+        UIManager.Instance.UpdateMedkits(medkits);
+        UIManager.Instance.UpdateSupplies($"AMMO {ammoReserve}   FOOD {food}   {GetCurrentWeight():0.0}/{maxCarryWeight:0} KG");
         hudInitialized = true;
     }
 }
