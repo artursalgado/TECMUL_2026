@@ -297,13 +297,23 @@ public class GameManager : MonoBehaviour
         }
 
         isGameActive = false;
-        UIManager.Instance?.ShowGameOver(score);
-        Debug.Log("GAME OVER! Score: " + score);
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        if (GameOverScreen.Instance != null)
+            GameOverScreen.Instance.ShowGameOver(score);
+        else
+            UIManager.Instance?.ShowGameOver(score);
     }
 
     public bool CanExtract()
     {
-        return isGameActive && extractionUnlocked;
+        if (!isGameActive) return false;
+        if (extractionUnlocked) return true;
+        // fallback: sem objetivos registados, verifica se todos os supplies foram recolhidos
+        if (objectivesById.Count == 0 && totalSupplyCaches > 0)
+            return suppliesFound >= totalSupplyCaches;
+        return false;
     }
 
     public void Extract()
@@ -316,7 +326,7 @@ public class GameManager : MonoBehaviour
         isGameActive = false;
         score += 250;
         UIManager.Instance?.ShowMessage("Extraction successful");
-        UIManager.Instance?.ShowGameOver(score);
+        TriggerVictory();
     }
 
     void RefreshHUD()
