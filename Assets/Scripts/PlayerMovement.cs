@@ -21,6 +21,9 @@ public class PlayerMovement : MonoBehaviour
     public float crouchSpeed = 2.5f;
     public float crouchHeight = 1.2f;
 
+    [Header("Ground Detection")]
+    public LayerMask walkableLayers = ~0;
+
     [Header("Camera")]
     [FormerlySerializedAs("cameraPrincipal")]
     public Transform playerCamera;

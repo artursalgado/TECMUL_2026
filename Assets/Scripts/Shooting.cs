@@ -115,11 +115,13 @@ public class Shooting : MonoBehaviour
         if (Physics.SphereCast(ray, 0.07f, out RaycastHit hit, range, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
         {
             tracerEnd = hit.point;
+            bool hitZombie = false;
 
             ZombieHitZone hitZone = hit.collider.GetComponent<ZombieHitZone>();
             if (hitZone != null)
             {
                 hitZone.ApplyHit(damage);
+                hitZombie = true;
             }
             else
             {
@@ -127,6 +129,16 @@ public class Shooting : MonoBehaviour
                 if (zombieHealth != null)
                 {
                     zombieHealth.TakeDamage(damage);
+                    hitZombie = true;
+                }
+            }
+
+            if (hitZombie)
+            {
+                Crosshair crosshair = FindFirstObjectByType<Crosshair>();
+                if (crosshair != null)
+                {
+                    crosshair.FlashHit();
                 }
             }
 

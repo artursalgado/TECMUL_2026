@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -55,6 +54,13 @@ public static class SceneBootstrapper
 
     static void CreateSceneMarker()
     {
+        PrototypeSceneMarker existingMarker = Object.FindFirstObjectByType<PrototypeSceneMarker>();
+        if (existingMarker != null)
+        {
+            existingMarker.version = SceneVersion;
+            return;
+        }
+
         GameObject markerObject = new GameObject("Prototype Scene Marker");
         PrototypeSceneMarker marker = markerObject.AddComponent<PrototypeSceneMarker>();
         marker.version = SceneVersion;
@@ -62,6 +68,12 @@ public static class SceneBootstrapper
 
     static void CreateWorld()
     {
+        GameObject existingRoot = GameObject.Find("Prototype Environment");
+        if (existingRoot != null)
+        {
+            return;
+        }
+
         GameObject environmentRoot = new GameObject("Prototype Environment");
         CreateGround(environmentRoot.transform);
         CreateOuterTerrain(environmentRoot.transform);
@@ -203,23 +215,61 @@ public static class SceneBootstrapper
 
     static GameObject CreatePlayer()
     {
-        GameObject player = new GameObject("Player");
-        player.tag = "Player";
-        player.transform.position = new Vector3(0f, 3f, -24f);
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player == null)
+        {
+            player = new GameObject("Player");
+            player.tag = "Player";
+            player.transform.position = new Vector3(0f, 3f, -24f);
+        }
 
-        CharacterController controller = player.AddComponent<CharacterController>();
+        CharacterController controller = player.GetComponent<CharacterController>();
+        if (controller == null)
+        {
+            controller = player.AddComponent<CharacterController>();
+        }
+
         controller.height = 1.8f;
         controller.radius = 0.35f;
         controller.center = new Vector3(0f, 0.9f, 0f);
 
-        AudioSource audioSource = player.AddComponent<AudioSource>();
+        AudioSource audioSource = player.GetComponent<AudioSource>();
+        if (audioSource == null)
+        {
+            audioSource = player.AddComponent<AudioSource>();
+        }
+
         audioSource.playOnAwake = false;
 
-        PlayerMovement movement = player.AddComponent<PlayerMovement>();
-        PlayerHealth health = player.AddComponent<PlayerHealth>();
-        PlayerInventory inventory = player.AddComponent<PlayerInventory>();
-        Shooting shooting = player.AddComponent<Shooting>();
-        PlayerInteractor interactor = player.AddComponent<PlayerInteractor>();
+        PlayerMovement movement = player.GetComponent<PlayerMovement>();
+        if (movement == null)
+        {
+            movement = player.AddComponent<PlayerMovement>();
+        }
+
+        PlayerHealth health = player.GetComponent<PlayerHealth>();
+        if (health == null)
+        {
+            health = player.AddComponent<PlayerHealth>();
+        }
+
+        PlayerInventory inventory = player.GetComponent<PlayerInventory>();
+        if (inventory == null)
+        {
+            inventory = player.AddComponent<PlayerInventory>();
+        }
+
+        Shooting shooting = player.GetComponent<Shooting>();
+        if (shooting == null)
+        {
+            shooting = player.AddComponent<Shooting>();
+        }
+
+        PlayerInteractor interactor = player.GetComponent<PlayerInteractor>();
+        if (interactor == null)
+        {
+            interactor = player.AddComponent<PlayerInteractor>();
+        }
 
         Camera camera = Camera.main;
         if (camera == null)
@@ -259,171 +309,75 @@ public static class SceneBootstrapper
 
     static UIManager CreateUI()
     {
-        GameObject canvasObject = new GameObject("Canvas");
-        Canvas canvas = canvasObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvasObject.AddComponent<CanvasScaler>().uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        canvasObject.AddComponent<GraphicRaycaster>();
+        UIManager uiManager = Object.FindFirstObjectByType<UIManager>();
+        if (uiManager == null)
+        {
+            GameObject uiManagerGO = new GameObject("UIManager");
+            uiManager = uiManagerGO.AddComponent<UIManager>();
+        }
 
-        UIManager uiManager = canvasObject.AddComponent<UIManager>();
-
-        uiManager.healthText = CreateText("Health Text", canvasObject.transform, new Vector2(18f, -14f), new Vector2(220f, 34f), 22).GetComponent<TextMeshProUGUI>();
-        uiManager.healthBar = CreateHealthBar(canvasObject.transform);
-        uiManager.ammoText = CreateText("Ammo Text", canvasObject.transform, new Vector2(-18f, -14f), new Vector2(220f, 34f), 22, TextAlignmentOptions.TopRight, new Vector2(1f, 1f)).GetComponent<TextMeshProUGUI>();
-        uiManager.scoreText = CreateText("Score Text", canvasObject.transform, new Vector2(18f, -78f), new Vector2(220f, 32f), 18).GetComponent<TextMeshProUGUI>();
-        uiManager.suppliesText = CreateText("Supplies Text", canvasObject.transform, new Vector2(18f, -106f), new Vector2(260f, 32f), 18).GetComponent<TextMeshProUGUI>();
-        uiManager.inventoryText = CreateText("Inventory Text", canvasObject.transform, new Vector2(18f, -132f), new Vector2(560f, 32f), 16).GetComponent<TextMeshProUGUI>();
-        uiManager.waveText = CreateText("Pressure Text", canvasObject.transform, new Vector2(-18f, -48f), new Vector2(220f, 32f), 18, TextAlignmentOptions.TopRight, new Vector2(1f, 1f)).GetComponent<TextMeshProUGUI>();
-        uiManager.objectiveText = CreateText("Objective Text", canvasObject.transform, new Vector2(18f, 18f), new Vector2(620f, 76f), 18, TextAlignmentOptions.BottomLeft, new Vector2(0f, 0f)).GetComponent<TextMeshProUGUI>();
-        uiManager.promptText = CreateText("Prompt Text", canvasObject.transform, new Vector2(0f, 40f), new Vector2(480f, 36f), 18, TextAlignmentOptions.Center, new Vector2(0.5f, 0f)).GetComponent<TextMeshProUGUI>();
-        uiManager.messageText = CreateText("Message Text", canvasObject.transform, new Vector2(0f, -20f), new Vector2(520f, 38f), 22, TextAlignmentOptions.Top, new Vector2(0.5f, 1f)).GetComponent<TextMeshProUGUI>();
-        uiManager.damageIndicator = CreateDamageIndicator(canvasObject.transform);
-
-        GameObject gameOverPanel = CreatePanel(canvasObject.transform);
-        uiManager.gameOverPanel = gameOverPanel;
-        uiManager.finalScoreText = gameOverPanel.transform.Find("Final Score Text").GetComponent<TextMeshProUGUI>();
+        if (Object.FindFirstObjectByType<GameOverScreen>() == null)
+        {
+            GameObject gameOverGO = new GameObject("GameOverScreen");
+            gameOverGO.AddComponent<GameOverScreen>();
+        }
 
         return uiManager;
     }
 
-    static Slider CreateHealthBar(Transform parent)
+    static void CreateCrosshair()
     {
-        GameObject root = new GameObject("Health Bar");
-        root.transform.SetParent(parent, false);
-        RectTransform rect = root.AddComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0f, 1f);
-        rect.anchorMax = new Vector2(0f, 1f);
-        rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(18f, -46f);
-        rect.sizeDelta = new Vector2(190f, 14f);
+        if (Object.FindFirstObjectByType<Crosshair>() != null)
+        {
+            return;
+        }
 
-        Image background = root.AddComponent<Image>();
-        background.color = new Color(0.15f, 0.15f, 0.15f, 0.9f);
+        GameObject canvasObject = GameObject.Find("Crosshair Canvas");
+        if (canvasObject == null)
+        {
+            canvasObject = new GameObject("Crosshair Canvas");
+        }
 
-        GameObject fillArea = new GameObject("Fill Area");
-        fillArea.transform.SetParent(root.transform, false);
-        RectTransform fillAreaRect = fillArea.AddComponent<RectTransform>();
-        fillAreaRect.anchorMin = Vector2.zero;
-        fillAreaRect.anchorMax = Vector2.one;
-        fillAreaRect.offsetMin = new Vector2(3f, 3f);
-        fillAreaRect.offsetMax = new Vector2(-3f, -3f);
+        Canvas canvas = canvasObject.GetComponent<Canvas>();
+        if (canvas == null)
+        {
+            canvas = canvasObject.AddComponent<Canvas>();
+        }
 
-        GameObject fill = new GameObject("Fill");
-        fill.transform.SetParent(fillArea.transform, false);
-        Image fillImage = fill.AddComponent<Image>();
-        fillImage.color = new Color(0.8f, 0.15f, 0.18f, 1f);
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 30;
 
-        RectTransform fillRect = fill.GetComponent<RectTransform>();
-        fillRect.anchorMin = Vector2.zero;
-        fillRect.anchorMax = Vector2.one;
-        fillRect.offsetMin = Vector2.zero;
-        fillRect.offsetMax = Vector2.zero;
+        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
+        if (scaler == null)
+        {
+            scaler = canvasObject.AddComponent<CanvasScaler>();
+        }
 
-        Slider slider = root.AddComponent<Slider>();
-        slider.fillRect = fillRect;
-        slider.targetGraphic = fillImage;
-        slider.direction = Slider.Direction.LeftToRight;
-        slider.minValue = 0f;
-        slider.maxValue = 100f;
-        slider.value = 100f;
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
 
-        return slider;
-    }
+        if (canvasObject.GetComponent<GraphicRaycaster>() == null)
+        {
+            canvasObject.AddComponent<GraphicRaycaster>();
+        }
 
-    static GameObject CreatePanel(Transform parent)
-    {
-        GameObject panel = new GameObject("Game Over Panel");
-        panel.transform.SetParent(parent, false);
+        for (int i = canvasObject.transform.childCount - 1; i >= 0; i--)
+        {
+            Object.Destroy(canvasObject.transform.GetChild(i).gameObject);
+        }
 
-        RectTransform rect = panel.AddComponent<RectTransform>();
+        GameObject crosshairObject = new GameObject("Crosshair");
+        crosshairObject.transform.SetParent(canvasObject.transform, false);
+
+        RectTransform rect = crosshairObject.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.5f, 0.5f);
         rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.sizeDelta = new Vector2(420f, 200f);
+        rect.anchoredPosition = Vector2.zero;
+        rect.sizeDelta = new Vector2(64f, 64f);
 
-        Image image = panel.AddComponent<Image>();
-        image.color = new Color(0f, 0f, 0f, 0.82f);
-
-        GameObject title = CreateText("Game Over Text", panel.transform, new Vector2(0f, 42f), new Vector2(360f, 54f), 36, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f));
-        title.GetComponent<TextMeshProUGUI>().text = "OVERWHELMED";
-
-        GameObject finalScore = CreateText("Final Score Text", panel.transform, new Vector2(0f, -8f), new Vector2(320f, 42f), 24, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f));
-        finalScore.GetComponent<TextMeshProUGUI>().text = "Final Score: 0";
-
-        GameObject subtitle = CreateText("Survival Text", panel.transform, new Vector2(0f, -56f), new Vector2(360f, 36f), 18, TextAlignmentOptions.Center, new Vector2(0.5f, 0.5f));
-        subtitle.GetComponent<TextMeshProUGUI>().text = "Scavenge smarter next run.";
-
-        panel.SetActive(false);
-        return panel;
-    }
-
-    static void CreateCrosshair()
-    {
-        GameObject canvasObject = new GameObject("Crosshair Canvas");
-        Canvas canvas = canvasObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 5;
-
-        GameObject horizontal = new GameObject("Crosshair Horizontal");
-        horizontal.transform.SetParent(canvasObject.transform, false);
-        RectTransform hRect = horizontal.AddComponent<RectTransform>();
-        hRect.anchorMin = new Vector2(0.5f, 0.5f);
-        hRect.anchorMax = new Vector2(0.5f, 0.5f);
-        hRect.sizeDelta = new Vector2(14f, 2f);
-        horizontal.AddComponent<Image>().color = Color.white;
-
-        GameObject vertical = new GameObject("Crosshair Vertical");
-        vertical.transform.SetParent(canvasObject.transform, false);
-        RectTransform vRect = vertical.AddComponent<RectTransform>();
-        vRect.anchorMin = new Vector2(0.5f, 0.5f);
-        vRect.anchorMax = new Vector2(0.5f, 0.5f);
-        vRect.sizeDelta = new Vector2(2f, 14f);
-        vertical.AddComponent<Image>().color = Color.white;
-    }
-
-    static Image CreateDamageIndicator(Transform parent)
-    {
-        GameObject overlay = new GameObject("Damage Indicator");
-        overlay.transform.SetParent(parent, false);
-        RectTransform rect = overlay.AddComponent<RectTransform>();
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
-
-        Image image = overlay.AddComponent<Image>();
-        image.color = new Color(0.7f, 0.08f, 0.08f, 0f);
-        overlay.SetActive(false);
-        return image;
-    }
-
-    static GameObject CreateText(
-        string objectName,
-        Transform parent,
-        Vector2 anchoredPosition,
-        Vector2 size,
-        float fontSize,
-        TextAlignmentOptions alignment = TextAlignmentOptions.TopLeft,
-        Vector2? anchor = null)
-    {
-        GameObject textObject = new GameObject(objectName);
-        textObject.transform.SetParent(parent, false);
-
-        RectTransform rect = textObject.AddComponent<RectTransform>();
-        Vector2 anchorValue = anchor ?? new Vector2(0f, 1f);
-        rect.anchorMin = anchorValue;
-        rect.anchorMax = anchorValue;
-        rect.pivot = anchorValue;
-        rect.anchoredPosition = anchoredPosition;
-        rect.sizeDelta = size;
-
-        TextMeshProUGUI text = textObject.AddComponent<TextMeshProUGUI>();
-        text.fontSize = fontSize;
-        text.color = Color.white;
-        text.alignment = alignment;
-        text.text = objectName.Replace(" Text", string.Empty);
-
-        return textObject;
+        crosshairObject.AddComponent<Crosshair>();
     }
 
     static GameObject CreateZombieTemplate()
@@ -460,8 +414,13 @@ public static class SceneBootstrapper
 
     static GameManager CreateGameManager(GameObject zombieTemplate, List<Transform> spawnPoints)
     {
-        GameObject gameManagerObject = new GameObject("GameManager");
-        GameManager gameManager = gameManagerObject.AddComponent<GameManager>();
+        GameManager gameManager = Object.FindFirstObjectByType<GameManager>();
+        if (gameManager == null)
+        {
+            GameObject gameManagerObject = new GameObject("GameManager");
+            gameManager = gameManagerObject.AddComponent<GameManager>();
+        }
+
         gameManager.zombiePrefab = zombieTemplate;
         gameManager.spawnPoints = spawnPoints;
         return gameManager;
@@ -469,6 +428,11 @@ public static class SceneBootstrapper
 
     static void CreateResidentialZone()
     {
+        if (GameObject.Find("Residential Block") != null)
+        {
+            return;
+        }
+
         GameObject zone = new GameObject("Residential Block");
         CreateZoneTrigger(zone.transform, "Residential Block", new Vector3(-22f, 1.5f, -8f), new Vector3(34f, 3f, 26f));
         CreateZoneObjective(zone.transform, "Residential Block", "res_keys", "Recover the shelter key");
@@ -491,6 +455,11 @@ public static class SceneBootstrapper
 
     static void CreateShelterZone()
     {
+        if (GameObject.Find("Shelter Yard") != null)
+        {
+            return;
+        }
+
         GameObject zone = new GameObject("Shelter Yard");
         CreateZoneTrigger(zone.transform, "Shelter Yard", new Vector3(0f, 1.5f, -6f), new Vector3(26f, 3f, 22f));
         CreateZoneObjective(zone.transform, "Shelter Yard", "shelter_gate", "Seal the shelter entrance");
@@ -511,6 +480,11 @@ public static class SceneBootstrapper
 
     static void CreateClinicZone()
     {
+        if (GameObject.Find("Clinic") != null)
+        {
+            return;
+        }
+
         GameObject zone = new GameObject("Clinic");
         CreateZoneTrigger(zone.transform, "Clinic", new Vector3(28f, 1.5f, -10f), new Vector3(24f, 3f, 28f));
         CreateZoneObjective(zone.transform, "Clinic", "clinic_meds", "Find emergency medicine");
@@ -531,6 +505,11 @@ public static class SceneBootstrapper
 
     static void CreateWarehouseZone()
     {
+        if (GameObject.Find("Warehouse") != null)
+        {
+            return;
+        }
+
         GameObject zone = new GameObject("Warehouse");
         CreateZoneTrigger(zone.transform, "Warehouse", new Vector3(-28f, 1.5f, 24f), new Vector3(26f, 3f, 28f));
         CreateZoneObjective(zone.transform, "Warehouse", "warehouse_parts", "Recover generator parts");
@@ -552,6 +531,11 @@ public static class SceneBootstrapper
 
     static void CreateFuelDepotZone()
     {
+        if (GameObject.Find("Fuel Depot") != null)
+        {
+            return;
+        }
+
         GameObject zone = new GameObject("Fuel Depot");
         CreateZoneTrigger(zone.transform, "Fuel Depot", new Vector3(30f, 1.5f, 24f), new Vector3(28f, 3f, 28f));
         CreateZoneObjective(zone.transform, "Fuel Depot", "fuel_power", "Restore extraction power");
@@ -694,6 +678,11 @@ public static class SceneBootstrapper
 
     static void CreateExtractionPoint()
     {
+        if (GameObject.Find("Extraction Point") != null)
+        {
+            return;
+        }
+
         GameObject extractionRoot = new GameObject("Extraction Point");
         CreateObstacle(extractionRoot.transform, "Extraction Pad", new Vector3(0f, 0.15f, -30f), new Vector3(6f, 0.3f, 6f), new Color(0.15f, 0.35f, 0.18f));
         CreateObstacle(extractionRoot.transform, "Beacon", new Vector3(0f, 2f, -30f), new Vector3(0.5f, 4f, 0.5f), new Color(0.75f, 0.85f, 0.95f));
