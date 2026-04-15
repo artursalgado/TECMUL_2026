@@ -257,7 +257,7 @@ public class GameOverScreen : MonoBehaviour
         textComponent.color = color;
         textComponent.fontStyle = fontStyle;
         textComponent.alignment = TextAlignmentOptions.Center;
-        textComponent.enableWordWrapping = true;
+        textComponent.textWrappingMode = TextWrappingModes.Normal;
 
         return textComponent;
     }
@@ -302,7 +302,7 @@ public class GameOverScreen : MonoBehaviour
             new Vector2(0.5f, 0.5f),
             Vector2.zero,
             Vector2.zero);
-        labelText.enableWordWrapping = false;
+        labelText.textWrappingMode = TextWrappingModes.NoWrap;
 
         return button;
     }

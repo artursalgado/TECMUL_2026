@@ -26,7 +26,6 @@ public class UIManager : MonoBehaviour
     private GameObject       _promptGO;
     private TextMeshProUGUI _messageText;
     private Image            _damageVignette;
-    private GameObject       _legacyGameOverPanel;
     private GameObject       _hudCanvasRoot;
 
     private int _maxHealth = 100;
@@ -231,7 +230,7 @@ public class UIManager : MonoBehaviour
 
         _objectiveText = MakeTMP("ObjText", p, "—", 11f, new Color(1,1,1,0.75f),
             TL, TR, TL, new Vector2(12, -30), new Vector2(-24, 104));
-        _objectiveText.enableWordWrapping = true;
+        _objectiveText.textWrappingMode = TextWrappingModes.Normal;
         _objectiveText.overflowMode = TextOverflowModes.Ellipsis;
         _objectiveText.lineSpacing = 5f;
     }
@@ -375,7 +374,7 @@ public class UIManager : MonoBehaviour
 
         _promptText = MakeTMP("PromptText", rt, "", 13f, Color.white,
             BL, BR, new Vector2(0.5f, 0.5f), new Vector2(0f, -2f), new Vector2(-28, -6f));
-        _promptText.enableWordWrapping = true;
+        _promptText.textWrappingMode = TextWrappingModes.Normal;
         _promptText.alignment = TextAlignmentOptions.Center;
         _promptText.characterSpacing = 0.5f;
         _promptGO.SetActive(false);
@@ -386,7 +385,7 @@ public class UIManager : MonoBehaviour
         _messageText = MakeTMP("MsgText", cv, "", 16f, Color.white,
             new Vector2(0.5f, 0.73f), new Vector2(0.5f, 0.73f),
             new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(760f, 40f));
-        _messageText.enableWordWrapping = true;
+        _messageText.textWrappingMode = TextWrappingModes.Normal;
         _messageText.alignment = TextAlignmentOptions.Center;
         _messageText.fontStyle = FontStyles.Bold;
         _messageText.gameObject.SetActive(false);
@@ -507,8 +506,7 @@ public class UIManager : MonoBehaviour
 
     public void SetGameOverVisible(bool visible)
     {
-        if (_legacyGameOverPanel != null)
-            _legacyGameOverPanel.SetActive(visible);
+        // Mantido por compatibilidade com chamadas antigas.
     }
 
     // ─── PRIVATE ─────────────────────────────────────────────────────────────
@@ -577,7 +575,7 @@ public class UIManager : MonoBehaviour
         tmp.text = text;
         tmp.fontSize = fontSize;
         tmp.color = color;
-        tmp.enableWordWrapping = false;
+        tmp.textWrappingMode = TextWrappingModes.NoWrap;
         tmp.overflowMode = TextOverflowModes.Overflow;
         return tmp;
     }
