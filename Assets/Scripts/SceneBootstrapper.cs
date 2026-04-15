@@ -5,7 +5,25 @@ using UnityEngine.UI;
 
 public static class SceneBootstrapper
 {
-    public const int SceneVersion = 5;
+    public const int SceneVersion = 6;
+
+    static readonly string[] LegacyRootNames =
+    {
+        "Canvas",
+        "Crosshair Canvas",
+        "GameManager",
+        "UIManager",
+        "GameOverScreen",
+        "Player",
+        "Prototype Environment",
+        "Residential Block",
+        "Shelter Yard",
+        "Clinic",
+        "Warehouse",
+        "Fuel Depot",
+        "Extraction Point",
+        "Zombie Template"
+    };
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void BuildSceneIfNeeded()
@@ -20,16 +38,12 @@ public static class SceneBootstrapper
 
     public static bool ShouldBuildActiveScene()
     {
-        if (Object.FindFirstObjectByType<GameManager>() != null)
-        {
-            return false;
-        }
-
         return SceneManager.GetActiveScene().name == "SampleScene";
     }
 
     public static void BuildPrototypeScene()
     {
+        PrepareSceneForBootstrap();
         CreateSceneMarker();
         CreateWorld();
         GameObject player = CreatePlayer();
@@ -50,6 +64,67 @@ public static class SceneBootstrapper
         CreateWarehouseZone();
         CreateFuelDepotZone();
         CreateExtractionPoint();
+        RuntimeSceneValidator.ValidateCurrentScene();
+    }
+
+    static void PrepareSceneForBootstrap()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+
+        for (int i = 0; i < LegacyRootNames.Length; i++)
+        {
+            DeactivateRootObjectsByName(activeScene, LegacyRootNames[i]);
+        }
+
+        DeactivateObjectsOfType<UIManager>();
+        DeactivateObjectsOfType<GameOverScreen>();
+        DeactivateObjectsOfType<GameManager>();
+        DeactivateObjectsOfType<PlayerMovement>();
+        DeactivateObjectsOfType<PlayerHealth>();
+        DeactivateObjectsOfType<PlayerInventory>();
+        DeactivateObjectsOfType<PlayerInteractor>();
+        DeactivateObjectsOfType<Shooting>();
+        DeactivateObjectsOfType<ZombieAI>();
+        DeactivateObjectsOfType<ZombieHealth>();
+        DeactivateObjectsOfType<LootContainer>();
+        DeactivateObjectsOfType<ZoneTrigger>();
+        DeactivateObjectsOfType<ObjectiveInteractable>();
+        DeactivateObjectsOfType<ExtractionZone>();
+        DeactivateObjectsOfType<Crosshair>();
+    }
+
+    static void DeactivateRootObjectsByName(Scene scene, string rootName)
+    {
+        GameObject[] rootObjects = scene.GetRootGameObjects();
+        for (int i = 0; i < rootObjects.Length; i++)
+        {
+            GameObject rootObject = rootObjects[i];
+            if (rootObject == null || rootObject.name != rootName || !rootObject.activeSelf)
+            {
+                continue;
+            }
+
+            rootObject.SetActive(false);
+        }
+    }
+
+    static void DeactivateObjectsOfType<T>() where T : Component
+    {
+        T[] components = Object.FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < components.Length; i++)
+        {
+            T component = components[i];
+            if (component == null)
+            {
+                continue;
+            }
+
+            GameObject rootObject = component.transform.root.gameObject;
+            if (rootObject.scene == SceneManager.GetActiveScene() && rootObject.activeSelf)
+            {
+                rootObject.SetActive(false);
+            }
+        }
     }
 
     static void CreateSceneMarker()
@@ -795,5 +870,84 @@ public static class SceneBootstrapper
         rightLeg.transform.localRotation = Quaternion.Euler(-2f, 0f, 0f);
         SetRendererColor(rightLeg.GetComponent<Renderer>(), new Color(0.09f, 0.11f, 0.12f));
         Object.Destroy(rightLeg.GetComponent<Collider>());
+    }
+}
+
+static class RuntimeSceneValidator
+{
+    public static bool ValidateCurrentScene()
+    {
+        if (SceneManager.GetActiveScene().name != "SampleScene")
+        {
+            return true;
+        }
+
+        List<string> errors = new List<string>();
+        List<string> warnings = new List<string>();
+
+        ValidateSingleton<GameManager>("GameManager", errors);
+        ValidateSingleton<UIManager>("UIManager", errors);
+        ValidateSingleton<GameOverScreen>("GameOverScreen", errors);
+        ValidateSingleton<Crosshair>("Crosshair", errors);
+
+        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        if (player == null)
+        {
+            errors.Add("Player with tag 'Player' was not found.");
+        }
+        else
+        {
+            ValidateComponent<CharacterController>(player, "CharacterController", errors);
+            ValidateComponent<PlayerMovement>(player, "PlayerMovement", errors);
+            ValidateComponent<PlayerHealth>(player, "PlayerHealth", errors);
+            ValidateComponent<PlayerInventory>(player, "PlayerInventory", errors);
+            ValidateComponent<PlayerInteractor>(player, "PlayerInteractor", errors);
+            ValidateComponent<Shooting>(player, "Shooting", errors);
+        }
+
+        ValidateMinimumCount<ObjectiveInteractable>("ObjectiveInteractable", 1, errors);
+        ValidateMinimumCount<ExtractionZone>("ExtractionZone", 1, errors);
+        ValidateMinimumCount<ZoneTrigger>("ZoneTrigger", 5, errors);
+        ValidateMinimumCount<LootContainer>("LootContainer", 1, errors);
+        ValidateMinimumCount<ZombieAI>("ZombieAI", 1, warnings);
+
+        if (warnings.Count > 0)
+        {
+            Debug.LogWarning("[RuntimeSceneValidator] Warnings:\n- " + string.Join("\n- ", warnings));
+        }
+
+        if (errors.Count > 0)
+        {
+            Debug.LogError("[RuntimeSceneValidator] Validation failed:\n- " + string.Join("\n- ", errors));
+            return false;
+        }
+
+        Debug.Log("[RuntimeSceneValidator] Scene validation passed.");
+        return true;
+    }
+
+    static void ValidateSingleton<T>(string label, List<string> errors) where T : Object
+    {
+        if (Object.FindFirstObjectByType<T>() == null)
+        {
+            errors.Add($"{label} is missing.");
+        }
+    }
+
+    static void ValidateComponent<T>(GameObject target, string label, List<string> errors) where T : Component
+    {
+        if (target.GetComponent<T>() == null)
+        {
+            errors.Add($"Player is missing component: {label}.");
+        }
+    }
+
+    static void ValidateMinimumCount<T>(string label, int minExpected, List<string> issues) where T : Component
+    {
+        int count = Object.FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None).Length;
+        if (count < minExpected)
+        {
+            issues.Add($"{label} count is {count} (expected at least {minExpected}).");
+        }
     }
 }
