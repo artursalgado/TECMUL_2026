@@ -1,3 +1,4 @@
+/* DESATIVADO — mapa gerado manualmente, não apagar este ficheiro
 #if UNITY_EDITOR
 using System.Linq;
 using UnityEditor;
@@ -82,3 +83,4 @@ public static class PrototypeSceneGenerator
     }
 }
 #endif
+*/ // fim do bloco DESATIVADO

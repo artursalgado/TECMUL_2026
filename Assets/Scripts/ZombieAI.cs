@@ -313,16 +313,16 @@ public class ZombieAI : MonoBehaviour
         switch (variant)
         {
             case ZombieVariant.Runner:
-                moveSpeed = 2.9f;
-                attackDamage = 7;
-                detectionDistance = 18f;
-                hearingDistance = 22f;
+                moveSpeed = 2.7f;
+                attackDamage = 6;
+                detectionDistance = 17f;
+                hearingDistance = 21f;
                 transform.localScale = new Vector3(0.92f, 0.92f, 0.92f);
                 break;
             case ZombieVariant.Tank:
-                moveSpeed = 1.15f;
-                attackDamage = 14;
-                detectionDistance = 14f;
+                moveSpeed = 1.1f;
+                attackDamage = 12;
+                detectionDistance = 13f;
                 hearingDistance = 12f;
                 transform.localScale = new Vector3(1.18f, 1.18f, 1.18f);
                 break;
@@ -346,10 +346,10 @@ public class ZombieAI : MonoBehaviour
                 }
                 break;
             default:
-                moveSpeed = 1.8f;
-                attackDamage = 6;
-                detectionDistance = 14f;
-                hearingDistance = 16f;
+                moveSpeed = 1.7f;
+                attackDamage = 5;
+                detectionDistance = 13f;
+                hearingDistance = 15f;
                 transform.localScale = Vector3.one;
                 break;
         }

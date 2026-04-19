@@ -1,3 +1,4 @@
+/* DESATIVADO — mapa gerado manualmente, não apagar este ficheiro
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -5,11 +6,12 @@ using UnityEngine.UI;
 
 public static class SceneBootstrapper
 {
-    public const int SceneVersion = 6;
+    public const int SceneVersion = 7;
 
     static readonly string[] LegacyRootNames =
     {
         "Canvas",
+        "HUD Canvas",
         "Crosshair Canvas",
         "GameManager",
         "UIManager",
@@ -24,6 +26,9 @@ public static class SceneBootstrapper
         "Extraction Point",
         "Zombie Template"
     };
+
+    static readonly Dictionary<Color32, Material> SharedMaterialCache = new Dictionary<Color32, Material>();
+    static Shader cachedSurfaceShader;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void BuildSceneIfNeeded()
@@ -366,17 +371,17 @@ public static class SceneBootstrapper
 
         shooting.fpsCamera = camera;
         shooting.range = 120f;
-        shooting.damage = 34;
-        shooting.maxAmmo = 24;
-        shooting.reloadTime = 1.6f;
+        shooting.damage = 30;
+        shooting.maxAmmo = 28;
+        shooting.reloadTime = 1.45f;
 
         interactor.interactionCamera = camera;
 
         health.maxHealth = 100;
         health.canRegenerate = false;
         inventory.maxCarryWeight = 22f;
-        inventory.ammoReserve = 36;
-        inventory.medkits = 1;
+        inventory.ammoReserve = 56;
+        inventory.medkits = 2;
 
         CreateCrosshair();
         return player;
@@ -384,14 +389,16 @@ public static class SceneBootstrapper
 
     static UIManager CreateUI()
     {
-        UIManager uiManager = Object.FindFirstObjectByType<UIManager>();
+        UIManager uiManager = FindComponentInActiveScene<UIManager>();
         if (uiManager == null)
         {
             GameObject uiManagerGO = new GameObject("UIManager");
             uiManager = uiManagerGO.AddComponent<UIManager>();
         }
 
-        if (Object.FindFirstObjectByType<GameOverScreen>() == null)
+        uiManager.EnsureRuntimeHud();
+
+        if (FindComponentInActiveScene<GameOverScreen>() == null)
         {
             GameObject gameOverGO = new GameObject("GameOverScreen");
             gameOverGO.AddComponent<GameOverScreen>();
@@ -475,13 +482,13 @@ public static class SceneBootstrapper
         ZombieAI zombieAI = zombie.AddComponent<ZombieAI>();
         ZombieHealth zombieHealth = zombie.AddComponent<ZombieHealth>();
 
-        zombieAI.moveSpeed = 1.6f;
-        zombieAI.detectionDistance = 14f;
-        zombieAI.attackDistance = 1.35f;
-        zombieAI.attackRate = 1.4f;
-        zombieAI.attackDamage = 6;
+        zombieAI.moveSpeed = 1.5f;
+        zombieAI.detectionDistance = 13f;
+        zombieAI.attackDistance = 1.25f;
+        zombieAI.attackRate = 1.5f;
+        zombieAI.attackDamage = 5;
 
-        zombieHealth.maxHealth = 100;
+        zombieHealth.maxHealth = 90;
         zombieHealth.scoreOnDeath = 50;
 
         return zombie;
@@ -489,7 +496,7 @@ public static class SceneBootstrapper
 
     static GameManager CreateGameManager(GameObject zombieTemplate, List<Transform> spawnPoints)
     {
-        GameManager gameManager = Object.FindFirstObjectByType<GameManager>();
+        GameManager gameManager = FindComponentInActiveScene<GameManager>();
         if (gameManager == null)
         {
             GameObject gameManagerObject = new GameObject("GameManager");
@@ -499,6 +506,27 @@ public static class SceneBootstrapper
         gameManager.zombiePrefab = zombieTemplate;
         gameManager.spawnPoints = spawnPoints;
         return gameManager;
+    }
+
+    static T FindComponentInActiveScene<T>() where T : Component
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        T[] components = Object.FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < components.Length; i++)
+        {
+            T component = components[i];
+            if (component == null)
+            {
+                continue;
+            }
+
+            if (component.gameObject.scene == activeScene)
+            {
+                return component;
+            }
+        }
+
+        return null;
     }
 
     static void CreateResidentialZone()
@@ -677,15 +705,15 @@ public static class SceneBootstrapper
 
         ZombieAI ai = zombie.AddComponent<ZombieAI>();
         ai.variant = variant;
-        ai.moveSpeed = 1.65f;
-        ai.detectionDistance = 13f;
-        ai.attackDistance = 1.35f;
-        ai.attackRate = 1.5f;
-        ai.attackDamage = 5;
+        ai.moveSpeed = 1.55f;
+        ai.detectionDistance = 12.5f;
+        ai.attackDistance = 1.25f;
+        ai.attackRate = 1.65f;
+        ai.attackDamage = 4;
 
         ZombieHealth health = zombie.AddComponent<ZombieHealth>();
         health.zoneName = zoneName;
-        health.maxHealth = 85;
+        health.maxHealth = 78;
         health.scoreOnDeath = 40;
     }
 
@@ -805,15 +833,42 @@ public static class SceneBootstrapper
             return;
         }
 
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null)
+        Material material = GetOrCreateSharedMaterial(color);
+        if (material != null)
         {
-            shader = Shader.Find("Standard");
+            renderer.sharedMaterial = material;
+        }
+    }
+
+    static Material GetOrCreateSharedMaterial(Color color)
+    {
+        Color32 key = color;
+        if (SharedMaterialCache.TryGetValue(key, out Material cached) && cached != null)
+        {
+            return cached;
         }
 
-        Material material = new Material(shader);
-        material.color = color;
-        renderer.sharedMaterial = material;
+        if (cachedSurfaceShader == null)
+        {
+            cachedSurfaceShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (cachedSurfaceShader == null)
+            {
+                cachedSurfaceShader = Shader.Find("Standard");
+            }
+        }
+
+        if (cachedSurfaceShader == null)
+        {
+            return null;
+        }
+
+        Material material = new Material(cachedSurfaceShader)
+        {
+            color = color,
+            name = $"RuntimeMat_{key.r}_{key.g}_{key.b}_{key.a}"
+        };
+        SharedMaterialCache[key] = material;
+        return material;
     }
 
     static void CreateZombieVisuals(Transform root)
@@ -889,6 +944,9 @@ static class RuntimeSceneValidator
         ValidateSingleton<UIManager>("UIManager", errors);
         ValidateSingleton<GameOverScreen>("GameOverScreen", errors);
         ValidateSingleton<Crosshair>("Crosshair", errors);
+        ValidateNamedObjectCount("HUD Canvas", 1, errors);
+        ValidateNamedObjectCount("Crosshair Canvas", 1, errors);
+        ValidateNamedObjectCount("Canvas", 0, warnings);
 
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player == null)
@@ -928,9 +986,16 @@ static class RuntimeSceneValidator
 
     static void ValidateSingleton<T>(string label, List<string> errors) where T : Object
     {
-        if (Object.FindFirstObjectByType<T>() == null)
+        int count = Object.FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None).Length;
+        if (count == 0)
         {
             errors.Add($"{label} is missing.");
+            return;
+        }
+
+        if (count > 1)
+        {
+            errors.Add($"{label} has {count} active instances (expected exactly 1).");
         }
     }
 
@@ -950,4 +1015,37 @@ static class RuntimeSceneValidator
             issues.Add($"{label} count is {count} (expected at least {minExpected}).");
         }
     }
+
+    static void ValidateNamedObjectCount(string objectName, int expected, List<string> issues)
+    {
+        int count = CountActiveObjectsByName(objectName);
+        if (count != expected)
+        {
+            issues.Add($"{objectName} count is {count} (expected exactly {expected}).");
+        }
+    }
+
+    static int CountActiveObjectsByName(string objectName)
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        Transform[] sceneObjects = Object.FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        int count = 0;
+        for (int i = 0; i < sceneObjects.Length; i++)
+        {
+            Transform item = sceneObjects[i];
+            if (item == null)
+            {
+                continue;
+            }
+
+            GameObject gameObject = item.gameObject;
+            if (gameObject.scene == activeScene && gameObject.name == objectName)
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
 }
+*/ // fim do bloco DESATIVADO

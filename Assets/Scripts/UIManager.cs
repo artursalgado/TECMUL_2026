@@ -44,7 +44,8 @@ public class UIManager : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void EnsureRuntimeUIManager()
     {
-        if (SceneManager.GetActiveScene().name != "SampleScene")
+        // SceneBootstrapper desativado — mapa feito manualmente
+        if (false)
         {
             return;
         }
@@ -60,8 +61,18 @@ public class UIManager : MonoBehaviour
 
     void Awake()
     {
-        if (Instance == null) Instance = this;
-        else { Destroy(gameObject); return; }
+        if (Instance != null && Instance != this)
+        {
+            if (Instance.gameObject.activeInHierarchy)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            Instance = null;
+        }
+
+        Instance = this;
 
         RemoveLegacyHudChildren();
         BuildHUD();
@@ -70,6 +81,7 @@ public class UIManager : MonoBehaviour
 
     void Start()
     {
+        EnsureRuntimeHud();
         UpdatePrompt(string.Empty);
         UpdateHealth(100, 100);
     }
@@ -101,6 +113,12 @@ public class UIManager : MonoBehaviour
 
     void BuildHUD()
     {
+        GameObject existingHud = GameObject.Find("HUD Canvas");
+        if (existingHud != null)
+        {
+            Destroy(existingHud);
+        }
+
         GameObject cvGO = new GameObject("HUD Canvas");
         _hudCanvasRoot = cvGO;
 
@@ -122,6 +140,22 @@ public class UIManager : MonoBehaviour
         BuildPrompt(cvGO.transform);
         BuildMessage(cvGO.transform);
         BuildDamageVignette(cvGO.transform);
+    }
+
+    public void EnsureRuntimeHud()
+    {
+        bool hudMissing = _hudCanvasRoot == null
+            || !_hudCanvasRoot.activeInHierarchy
+            || _hudCanvasRoot.GetComponent<Canvas>() == null;
+
+        if (!hudMissing)
+        {
+            return;
+        }
+
+        RemoveLegacyHudChildren();
+        BuildHUD();
+        EnsureCrosshairPresent();
     }
 
     void RemoveLegacyHudChildren()
@@ -504,11 +538,6 @@ public class UIManager : MonoBehaviour
             GameOverScreen.Instance.ShowGameOver(score);
     }
 
-    public void SetGameOverVisible(bool visible)
-    {
-        // Mantido por compatibilidade com chamadas antigas.
-    }
-
     // ─── PRIVATE ─────────────────────────────────────────────────────────────
 
     void HideMessage()
@@ -531,6 +560,14 @@ public class UIManager : MonoBehaviour
             Destroy(_hudCanvasRoot);
 
         if (Instance == this) Instance = null;
+    }
+
+    void OnDisable()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     // ─── HELPERS ─────────────────────────────────────────────────────────────

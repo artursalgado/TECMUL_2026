@@ -33,7 +33,8 @@ public class GameOverScreen : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void EnsureRuntimeGameOverScreen()
     {
-        if (SceneManager.GetActiveScene().name != "SampleScene")
+        // SceneBootstrapper desativado — mapa feito manualmente
+        if (false)
         {
             return;
         }
@@ -49,13 +50,18 @@ public class GameOverScreen : MonoBehaviour
 
     void Awake()
     {
-        if (Instance == null) Instance = this;
-        else
+        if (Instance != null && Instance != this)
         {
-            Destroy(gameObject);
-            return;
+            if (Instance.gameObject.activeInHierarchy)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            Instance = null;
         }
 
+        Instance = this;
         BuildRuntimeUIIfNeeded();
     }
 
@@ -350,6 +356,14 @@ public class GameOverScreen : MonoBehaviour
             Destroy(runtimeCanvasRoot);
         }
 
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
+    void OnDisable()
+    {
         if (Instance == this)
         {
             Instance = null;

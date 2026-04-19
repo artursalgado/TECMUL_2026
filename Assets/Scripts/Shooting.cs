@@ -44,12 +44,16 @@ public class Shooting : MonoBehaviour
     private Coroutine kickCoroutine;
     private PlayerInventory inventory;
     private PlayerMovement movement;
+    private Crosshair cachedCrosshair;
+    private Material tracerMaterial;
+    private Material fallbackImpactMaterial;
 
     void Start()
     {
         currentAmmo = maxAmmo;
         inventory = GetComponent<PlayerInventory>();
         movement = GetComponent<PlayerMovement>();
+        cachedCrosshair = FindFirstObjectByType<Crosshair>();
         EnsureWeaponModel();
     }
 
@@ -135,10 +139,10 @@ public class Shooting : MonoBehaviour
 
             if (hitZombie)
             {
-                Crosshair crosshair = FindFirstObjectByType<Crosshair>();
-                if (crosshair != null)
+                EnsureCrosshairReference();
+                if (cachedCrosshair != null)
                 {
-                    crosshair.FlashHit();
+                    cachedCrosshair.FlashHit();
                 }
             }
 
@@ -274,7 +278,7 @@ public class Shooting : MonoBehaviour
         Renderer renderer = impact.GetComponent<Renderer>();
         if (renderer != null)
         {
-            renderer.sharedMaterial = CreateMaterial(new Color(1f, 0.8f, 0.18f));
+            renderer.sharedMaterial = GetFallbackImpactMaterial();
         }
 
         Collider collider = impact.GetComponent<Collider>();
@@ -298,10 +302,38 @@ public class Shooting : MonoBehaviour
         line.numCapVertices = 2;
         line.shadowCastingMode = ShadowCastingMode.Off;
         line.receiveShadows = false;
-        line.material = CreateMaterial(new Color(1f, 0.92f, 0.55f));
+        line.sharedMaterial = GetTracerMaterial();
         line.startColor = new Color(1f, 0.95f, 0.75f, 0.95f);
         line.endColor = new Color(1f, 0.78f, 0.22f, 0.15f);
         Destroy(tracer, 0.05f);
+    }
+
+    void EnsureCrosshairReference()
+    {
+        if (cachedCrosshair == null)
+        {
+            cachedCrosshair = FindFirstObjectByType<Crosshair>();
+        }
+    }
+
+    Material GetTracerMaterial()
+    {
+        if (tracerMaterial == null)
+        {
+            tracerMaterial = CreateMaterial(new Color(1f, 0.92f, 0.55f));
+        }
+
+        return tracerMaterial;
+    }
+
+    Material GetFallbackImpactMaterial()
+    {
+        if (fallbackImpactMaterial == null)
+        {
+            fallbackImpactMaterial = CreateMaterial(new Color(1f, 0.8f, 0.18f));
+        }
+
+        return fallbackImpactMaterial;
     }
 
     void PlayWeaponKick()

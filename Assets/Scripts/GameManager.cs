@@ -54,14 +54,18 @@ public class GameManager : MonoBehaviour
 
     void Awake()
     {
-        if (Instance == null)
+        if (Instance != null && Instance != this)
         {
-            Instance = this;
+            if (Instance.gameObject.activeInHierarchy)
+            {
+                Destroy(gameObject);
+                return;
+            }
+
+            Instance = null;
         }
-        else
-        {
-            Destroy(gameObject);
-        }
+
+        Instance = this;
     }
 
     void OnDestroy()
@@ -72,9 +76,16 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    void OnDisable()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+    }
+
     void Start()
     {
-        UIManager.Instance?.SetGameOverVisible(false);
         RefreshHUD();
 
         if (autoSpawnWaves)
@@ -406,7 +417,7 @@ public class GameManager : MonoBehaviour
         return string.Empty;
     }
 
-    // --- Métodos públicos para WinCondition e GameOverScreen ---
+    // --- Métodos públicos usados por UI e ecrã final ---
 
     public int GetScore() => score;
 
