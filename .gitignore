@@ -15,3 +15,6 @@ My project/Temp/
 My project/Logs/
 My project/UserSettings/
 .DS_Store
+*.hdr
+*.hdrz
+*.exr
