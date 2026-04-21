@@ -67,5 +67,5 @@
         "*.sln": "*.csproj",
         "*.slnx": "*.csproj"
     },
-    "dotnet.defaultSolution": "TECMUL.slnx"
+    "dotnet.defaultSolution": "TECMUL_2026.slnx"
 }

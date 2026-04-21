@@ -64,14 +64,20 @@ public class ZombieAI : MonoBehaviour
 
     void Start()
     {
+        attackDamage = Mathf.RoundToInt(attackDamage * GameConfig.ZombieDamageMultiplier);
         agent = GetComponent<NavMeshAgent>();
+        
+        // If NavMeshAgent exists but is disabled, enable it if on NavMesh
+        if (agent != null && !agent.enabled) agent.enabled = true;
+
         player = GameObject.FindGameObjectWithTag("Player")?.transform;
         health = GetComponent<ZombieHealth>();
         capsuleCollider = GetComponent<CapsuleCollider>();
         patrolOrigin = transform.position;
         patrolTarget = patrolOrigin;
         ApplyVariantProfile();
-        if (agent != null)
+        
+        if (agent != null && agent.isActiveAndEnabled)
         {
             agent.speed = moveSpeed;
         }
@@ -81,89 +87,124 @@ public class ZombieAI : MonoBehaviour
 
     void Update()
     {
-        if (health != null && health.IsDead())
-        {
-            return;
-        }
+        if (health != null && health.IsDead()) return;
+        if (player == null) return;
 
-        if (player == null)
-        {
-            return;
-        }
+        UpdateAIState();
+        ExecuteAIState();
+        SyncAnimation();
+    }
 
+    void UpdateAIState()
+    {
         if (Time.time < stunnedUntil)
         {
             currentState = ZombieState.Stunned;
-            KeepGrounded();
             return;
         }
 
         Vector3 flatOffset = player.position - transform.position;
         flatOffset.y = 0f;
         float distanceToPlayer = flatOffset.magnitude;
+
+        // Flee logic (Evasion) - if low health and not a Tank
+        if (health != null && health.currentHealth < (health.maxHealth * 0.15f) && variant != ZombieVariant.Tank)
+        {
+            currentState = ZombieState.Patrol;
+            FleeFromPlayer();
+            return;
+        }
+
         bool heardShot = Time.time - Shooting.LastShotTime < 1.2f
             && Vector3.Distance(transform.position, Shooting.LastShotPosition) <= hearingDistance;
 
         if (heardShot)
         {
-            alertUntil = Time.time + 2.5f;
+            alertUntil = Time.time + 4.5f;
         }
 
-        if (distanceToPlayer <= detectionDistance)
+        float actualDetectionDistance = detectionDistance;
+        PlayerMovement pm = player.GetComponent<PlayerMovement>();
+        if (pm != null && pm.IsCrouching()) actualDetectionDistance *= 0.65f;
+
+        if (distanceToPlayer <= actualDetectionDistance)
         {
             currentState = distanceToPlayer <= attackDistance ? ZombieState.Attack : ZombieState.Chase;
+        }
+        else if (Time.time < alertUntil)
+        {
+            currentState = ZombieState.Alert;
+        }
+        else
+        {
+            currentState = ZombieState.Patrol;
+        }
+    }
 
-            if (agent != null && agent.isOnNavMesh)
-            {
-                agent.SetDestination(player.position);
-            }
-            else
-            {
-                MoveTowardsPlayer();
-            }
-
-            if (distanceToPlayer <= attackDistance)
-            {
-                if (agent != null && agent.isOnNavMesh)
+    void ExecuteAIState()
+    {
+        switch (currentState)
+        {
+            case ZombieState.Attack:
+                if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
                 {
+                    agent.isStopped = true;
                     agent.speed = 0f;
                 }
-
                 if (Time.time >= nextAttackTime)
                 {
                     nextAttackTime = Time.time + attackRate;
                     AttackPlayer();
                 }
-            }
-            else
-            {
-                if (agent != null && agent.isOnNavMesh)
+                break;
+
+            case ZombieState.Chase:
+                if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
                 {
-                    agent.speed = attackMoveSpeed;
+                    agent.isStopped = false;
+                    agent.SetDestination(player.position);
+                    agent.speed = moveSpeed;
                 }
-            }
+                else
+                {
+                    MoveTowardsPlayer();
+                }
+                break;
+
+            case ZombieState.Alert:
+                InvestigateSound();
+                break;
+
+            case ZombieState.Patrol:
+                Patrol();
+                break;
+
+            case ZombieState.Stunned:
+                if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
+                {
+                    agent.isStopped = true;
+                }
+                KeepGrounded();
+                break;
         }
-        else if (Time.time < alertUntil)
+    }
+
+    void SyncAnimation()
+    {
+        if (animator == null) return;
+        
+        float currentSpeed = 0f;
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
         {
-            currentState = ZombieState.Alert;
-            MoveTowardsPoint(Shooting.LastShotPosition, moveSpeed * 0.8f);
+            currentSpeed = agent.velocity.magnitude;
         }
-        else
+        else if (currentState != ZombieState.Attack && currentState != ZombieState.Stunned)
         {
-            currentState = ZombieState.Patrol;
-            Patrol();
+            currentSpeed = moveSpeed;
         }
 
-        if (animator != null)
-        {
-            float currentSpeed = agent != null && agent.isOnNavMesh
-                ? agent.velocity.magnitude
-                : (distanceToPlayer <= attackDistance ? 0f : moveSpeed);
-            animator.SetFloat("Velocidade", currentSpeed);
-            animator.SetBool("Perto", distanceToPlayer <= attackDistance);
-        }
-
-        KeepGrounded();
+        animator.SetFloat("Velocidade", currentSpeed);
+        animator.SetBool("Perto", currentState == ZombieState.Attack);
     }
 
     void MoveTowardsPlayer()
@@ -210,12 +251,42 @@ public class ZombieAI : MonoBehaviour
 
     void Move(Vector3 moveDirection, float speed)
     {
-        transform.position += moveDirection * speed * Time.deltaTime;
-        KeepGrounded();
-        transform.rotation = Quaternion.Slerp(
-            transform.rotation,
-            Quaternion.LookRotation(moveDirection),
-            8f * Time.deltaTime);
+        Vector3 targetMove = moveDirection * speed * Time.deltaTime;
+        
+        // Primitive collision fallback (dont walk through walls)
+        if (!Physics.SphereCast(transform.position + Vector3.up * 0.5f, 0.35f, moveDirection, out RaycastHit hit, targetMove.magnitude + 0.1f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+        {
+            transform.position += targetMove;
+        }
+        
+        KeepGrounded(true); // Active grounding
+        
+        if (moveDirection != Vector3.zero)
+        {
+            transform.rotation = Quaternion.Slerp(
+                transform.rotation,
+                Quaternion.LookRotation(moveDirection),
+                8.5f * Time.deltaTime);
+        }
+    }
+
+    void KeepGrounded(bool active = false)
+    {
+        if (active)
+        {
+            // Dynamic raycast grounding
+            if (Physics.Raycast(transform.position + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 4f, Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+            {
+                if (IsWalkableSurface(hit.collider))
+                {
+                    groundedY = hit.point.y + groundOffset;
+                }
+            }
+        }
+
+        Vector3 position = transform.position;
+        position.y = groundedY;
+        transform.position = position;
     }
 
     void PlaceOnWalkableGround()
@@ -282,11 +353,20 @@ public class ZombieAI : MonoBehaviour
             return false;
         }
 
+        // Logic sync with PlayerMovement
+        int layerBit = 1 << hitCollider.gameObject.layer;
+        if ((Physics.DefaultRaycastLayers & layerBit) != 0)
+        {
+            return true;
+        }
+
         string surfaceName = hitCollider.gameObject.name;
         return surfaceName == "Ground"
             || surfaceName == "Outer Terrain"
             || surfaceName == "Main Street"
-            || surfaceName == "Cross Road";
+            || surfaceName == "Cross Road"
+            || surfaceName.Contains("Road")
+            || surfaceName.Contains("Terrain");
     }
 
     void AttackPlayer()
@@ -352,6 +432,34 @@ public class ZombieAI : MonoBehaviour
                 hearingDistance = 15f;
                 transform.localScale = Vector3.one;
                 break;
+        }
+    }
+    void InvestigateSound()
+    {
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
+        {
+            agent.SetDestination(Shooting.LastShotPosition);
+            agent.speed = moveSpeed * 0.7f;
+        }
+        else
+        {
+            MoveTowardsPoint(Shooting.LastShotPosition, moveSpeed * 0.7f);
+        }
+    }
+
+    void FleeFromPlayer()
+    {
+        Vector3 fleeDirection = (transform.position - player.position).normalized;
+        Vector3 fleeTarget = transform.position + fleeDirection * 10f;
+
+        if (agent != null && agent.isActiveAndEnabled && agent.isOnNavMesh)
+        {
+            agent.SetDestination(fleeTarget);
+            agent.speed = moveSpeed * 1.25f;
+        }
+        else
+        {
+            MoveTowardsPoint(fleeTarget, moveSpeed * 1.25f);
         }
     }
 }

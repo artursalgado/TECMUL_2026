@@ -1,8 +1,10 @@
-/* DESATIVADO — mapa gerado manualmente, não apagar este ficheiro
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public static class SceneBootstrapper
 {
@@ -24,7 +26,11 @@ public static class SceneBootstrapper
         "Warehouse",
         "Fuel Depot",
         "Extraction Point",
-        "Zombie Template"
+        "Zombie Template",
+        "Generated OpenWorld",
+        "Prototype Scene Marker",
+        "Terrain",
+        "Stylized Dressing"
     };
 
     static readonly Dictionary<Color32, Material> SharedMaterialCache = new Dictionary<Color32, Material>();
@@ -43,25 +49,64 @@ public static class SceneBootstrapper
 
     public static bool ShouldBuildActiveScene()
     {
-        return SceneManager.GetActiveScene().name == "SampleScene";
+        return SceneManager.GetActiveScene().name == "Mapa_EXT01";
     }
 
     public static void BuildPrototypeScene()
     {
+        Debug.Log("[Bootstrap] Phase 1: HUD & Config Menu Initialization...");
         PrepareSceneForBootstrap();
         CreateSceneMarker();
+        
+        // Only create UI first to show the menu
+        UIManager uiManager = CreateUI();
+        if (uiManager != null) {
+            if (GameConfig.SkipConfigMenu) {
+                // Skip the menu and build gameplay immediately
+                ExecuteGameplayBuild();
+                GameConfig.SkipConfigMenu = false; // Reset for next time
+            } else {
+                // Config menu - cria MainMenuManager se nao existir
+                CreateMainMenuManagerIfNeeded();
+                uiManager.ShowConfigMenu();
+            }
+        }
+    }
+
+    static bool _gameplayBuildExecuted = false;
+
+    public static void ResetGameplayBuildFlag()
+    {
+        _gameplayBuildExecuted = false;
+    }
+
+    public static void ExecuteGameplayBuild()
+    {
+        if (_gameplayBuildExecuted)
+        {
+            Debug.Log("[Bootstrap] ExecuteGameplayBuild ja foi executado, ignorando...");
+            return;
+        }
+        _gameplayBuildExecuted = true;
+
+        Debug.Log("[Bootstrap] Phase 2: Generating Procedural World...");
+
         CreateWorld();
         GameObject player = CreatePlayer();
-        UIManager uiManager = CreateUI();
+        
+        // Setup Shooting ref for UIManager
+        if (UIManager.Instance != null)
+        {
+            UIManager.Instance.shooting = player.GetComponent<Shooting>();
+        }
 
         GameObject zombieTemplate = CreateZombieTemplate();
         GameManager gameManager = CreateGameManager(zombieTemplate, new List<Transform>());
         gameManager.autoSpawnWaves = false;
 
-        if (uiManager != null)
-        {
-            uiManager.shooting = player.GetComponent<Shooting>();
-        }
+        // Apply difficulty settings
+        PlayerHealth ph = player.GetComponent<PlayerHealth>();
+        if (ph != null) ph.maxHealth = 100; // Reset for config
 
         CreateResidentialZone();
         CreateShelterZone();
@@ -69,53 +114,67 @@ public static class SceneBootstrapper
         CreateWarehouseZone();
         CreateFuelDepotZone();
         CreateExtractionPoint();
+        ApplyStylizedDecoration();
+        
+        // Lighting adjustment
+        RenderSettings.ambientIntensity = GameConfig.LightIntensity;
+        RenderSettings.ambientLight = GameConfig.AmbientColor;
+        
         RuntimeSceneValidator.ValidateCurrentScene();
+        Debug.Log("[Bootstrap] MISSION READY.");
     }
 
     static void PrepareSceneForBootstrap()
     {
+        Debug.Log("[Bootstrap] Clearing legacy objects...");
+        SharedMaterialCache.Clear();
         Scene activeScene = SceneManager.GetActiveScene();
 
         for (int i = 0; i < LegacyRootNames.Length; i++)
         {
-            DeactivateRootObjectsByName(activeScene, LegacyRootNames[i]);
+            DestroyObjectsByName(activeScene, LegacyRootNames[i]);
         }
 
-        DeactivateObjectsOfType<UIManager>();
-        DeactivateObjectsOfType<GameOverScreen>();
-        DeactivateObjectsOfType<GameManager>();
-        DeactivateObjectsOfType<PlayerMovement>();
-        DeactivateObjectsOfType<PlayerHealth>();
-        DeactivateObjectsOfType<PlayerInventory>();
-        DeactivateObjectsOfType<PlayerInteractor>();
-        DeactivateObjectsOfType<Shooting>();
-        DeactivateObjectsOfType<ZombieAI>();
-        DeactivateObjectsOfType<ZombieHealth>();
-        DeactivateObjectsOfType<LootContainer>();
-        DeactivateObjectsOfType<ZoneTrigger>();
-        DeactivateObjectsOfType<ObjectiveInteractable>();
-        DeactivateObjectsOfType<ExtractionZone>();
-        DeactivateObjectsOfType<Crosshair>();
+        DestroyObjectsOfType<UIManager>();
+        DestroyObjectsOfType<GameOverScreen>();
+        DestroyObjectsOfType<PlayerMovement>();
+        DestroyObjectsOfType<PlayerHealth>();
+        DestroyObjectsOfType<PlayerInventory>();
+        DestroyObjectsOfType<PlayerInteractor>();
+        DestroyObjectsOfType<Shooting>();
+        DestroyObjectsOfType<ZombieAI>();
+        DestroyObjectsOfType<ZombieHealth>();
+        DestroyObjectsOfType<LootContainer>();
+        DestroyObjectsOfType<ZoneTrigger>();
+        DestroyObjectsOfType<ObjectiveInteractable>();
+        DestroyObjectsOfType<ExtractionZone>();
+        DestroyObjectsOfType<Crosshair>();
     }
 
-    static void DeactivateRootObjectsByName(Scene scene, string rootName)
+    static void DestroyObjectsByName(Scene scene, string objectName)
     {
-        GameObject[] rootObjects = scene.GetRootGameObjects();
-        for (int i = 0; i < rootObjects.Length; i++)
+        Transform[] allObjects = Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < allObjects.Length; i++)
         {
-            GameObject rootObject = rootObjects[i];
-            if (rootObject == null || rootObject.name != rootName || !rootObject.activeSelf)
+            Transform transform = allObjects[i];
+            if (transform == null)
             {
                 continue;
             }
 
-            rootObject.SetActive(false);
+            GameObject go = transform.gameObject;
+            if (go.scene != scene || go.name != objectName)
+            {
+                continue;
+            }
+
+            DestroySafe(go);
         }
     }
 
-    static void DeactivateObjectsOfType<T>() where T : Component
+    static void DestroyObjectsOfType<T>() where T : Component
     {
-        T[] components = Object.FindObjectsByType<T>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        T[] components = Object.FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (int i = 0; i < components.Length; i++)
         {
             T component = components[i];
@@ -124,30 +183,40 @@ public static class SceneBootstrapper
                 continue;
             }
 
-            GameObject rootObject = component.transform.root.gameObject;
-            if (rootObject.scene == SceneManager.GetActiveScene() && rootObject.activeSelf)
-            {
-                rootObject.SetActive(false);
-            }
+            GameObject owner = component.gameObject;
+            DestroySafe(owner);
         }
     }
 
     static void CreateSceneMarker()
     {
+        Debug.Log("[Bootstrap] Creating/Updating Scene Marker...");
         PrototypeSceneMarker existingMarker = Object.FindFirstObjectByType<PrototypeSceneMarker>();
         if (existingMarker != null)
         {
             existingMarker.version = SceneVersion;
-            return;
+            // Removed return to allow world generation to continue
         }
+        else
+        {
+            GameObject markerObject = new GameObject("Prototype Scene Marker");
+            PrototypeSceneMarker marker = markerObject.AddComponent<PrototypeSceneMarker>();
+            marker.version = SceneVersion;
+        }
+    }
 
-        GameObject markerObject = new GameObject("Prototype Scene Marker");
-        PrototypeSceneMarker marker = markerObject.AddComponent<PrototypeSceneMarker>();
-        marker.version = SceneVersion;
+    static void CreateMainMenuManagerIfNeeded()
+    {
+        if (MainMenuManager.Instance != null) return;
+
+        Debug.Log("[Bootstrap] Creating MainMenuManager...");
+        GameObject menuGO = new GameObject("MainMenuManager");
+        menuGO.AddComponent<MainMenuManager>();
     }
 
     static void CreateWorld()
     {
+        Debug.Log("[Bootstrap] Building world...");
         GameObject existingRoot = GameObject.Find("Prototype Environment");
         if (existingRoot != null)
         {
@@ -175,7 +244,7 @@ public static class SceneBootstrapper
         Renderer floorRenderer = floor.GetComponent<Renderer>();
         if (floorRenderer != null)
         {
-            SetRendererColor(floorRenderer, new Color(0.2f, 0.24f, 0.2f));
+            SetRendererTexture(floorRenderer, new Color(0.2f, 0.24f, 0.2f), "GroundTexture");
         }
     }
 
@@ -184,13 +253,13 @@ public static class SceneBootstrapper
         GameObject outerTerrain = GameObject.CreatePrimitive(PrimitiveType.Plane);
         outerTerrain.name = "Outer Terrain";
         outerTerrain.transform.SetParent(parent);
-        outerTerrain.transform.position = new Vector3(0f, -0.05f, 0f);
+        outerTerrain.transform.position = new Vector3(0f, -0.15f, 0f);
         outerTerrain.transform.localScale = new Vector3(40f, 1f, 40f);
 
         Renderer terrainRenderer = outerTerrain.GetComponent<Renderer>();
         if (terrainRenderer != null)
         {
-            SetRendererColor(terrainRenderer, new Color(0.29f, 0.26f, 0.18f));
+            SetRendererTexture(terrainRenderer, new Color(0.29f, 0.26f, 0.18f), "GroundTexture");
         }
 
         CreateBoundarySlope(parent, new Vector3(0f, -1.2f, 220f), new Vector3(760f, 14f, 40f), new Vector3(8f, 0f, 0f));
@@ -216,7 +285,7 @@ public static class SceneBootstrapper
         wall.transform.SetParent(parent);
         wall.transform.position = position;
         wall.transform.localScale = scale;
-        SetRendererColor(wall.GetComponent<Renderer>(), color);
+        SetRendererTexture(wall.GetComponent<Renderer>(), color, "BuildingBrickTexture");
     }
 
     static void CreateRoad(Transform parent, string name, Vector3 position, Vector3 scale)
@@ -230,7 +299,7 @@ public static class SceneBootstrapper
         Renderer renderer = road.GetComponent<Renderer>();
         if (renderer != null)
         {
-            SetRendererColor(renderer, new Color(0.17f, 0.17f, 0.18f));
+            SetRendererTexture(renderer, Color.white, "RoadTexture");
         }
     }
 
@@ -279,7 +348,7 @@ public static class SceneBootstrapper
         wall.transform.SetParent(parent);
         wall.transform.position = position;
         wall.transform.localScale = scale;
-        SetRendererColor(wall.GetComponent<Renderer>(), new Color(0.35f, 0.37f, 0.4f));
+        SetRendererTexture(wall.GetComponent<Renderer>(), Color.white, "BuildingBrickTexture");
     }
 
     static void CreateBoundarySlope(Transform parent, Vector3 position, Vector3 scale, Vector3 eulerAngles)
@@ -295,12 +364,12 @@ public static class SceneBootstrapper
 
     static GameObject CreatePlayer()
     {
-        GameObject player = GameObject.FindGameObjectWithTag("Player");
+        GameObject player = FindPlayerInActiveScene();
         if (player == null)
         {
             player = new GameObject("Player");
             player.tag = "Player";
-            player.transform.position = new Vector3(0f, 3f, -24f);
+            player.transform.position = new Vector3(0f, 1.5f, -24f);
         }
 
         CharacterController controller = player.GetComponent<CharacterController>();
@@ -351,7 +420,7 @@ public static class SceneBootstrapper
             interactor = player.AddComponent<PlayerInteractor>();
         }
 
-        Camera camera = Camera.main;
+        Camera camera = FindMainCameraInActiveScene();
         if (camera == null)
         {
             GameObject cameraObject = new GameObject("Main Camera");
@@ -363,6 +432,12 @@ public static class SceneBootstrapper
         camera.transform.SetParent(player.transform);
         camera.transform.localPosition = new Vector3(0f, 0.72f, 0f);
         camera.transform.localRotation = Quaternion.identity;
+        camera.enabled = true;
+
+        // Weapon Visuals (FPS View)
+        GameObject weaponRoot = new GameObject("FPS Weapon");
+        weaponRoot.transform.SetParent(camera.transform, false);
+        CreateWeaponVisuals(weaponRoot.transform, true);
 
         movement.playerCamera = camera.transform;
         movement.walkSpeed = 6f;
@@ -387,6 +462,48 @@ public static class SceneBootstrapper
         return player;
     }
 
+    static GameObject FindPlayerInActiveScene()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        GameObject[] allPlayers = GameObject.FindGameObjectsWithTag("Player");
+        for (int i = 0; i < allPlayers.Length; i++)
+        {
+            GameObject player = allPlayers[i];
+            if (player != null && player.scene == activeScene)
+            {
+                return player;
+            }
+        }
+
+        return null;
+    }
+
+    static Camera FindMainCameraInActiveScene()
+    {
+        Scene activeScene = SceneManager.GetActiveScene();
+        Camera[] cameras = Object.FindObjectsByType<Camera>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            Camera cam = cameras[i];
+            if (cam == null)
+            {
+                continue;
+            }
+
+            if (cam.gameObject.scene != activeScene)
+            {
+                continue;
+            }
+
+            if (cam.CompareTag("MainCamera"))
+            {
+                return cam;
+            }
+        }
+
+        return null;
+    }
+
     static UIManager CreateUI()
     {
         UIManager uiManager = FindComponentInActiveScene<UIManager>();
@@ -402,6 +519,12 @@ public static class SceneBootstrapper
         {
             GameObject gameOverGO = new GameObject("GameOverScreen");
             gameOverGO.AddComponent<GameOverScreen>();
+        }
+
+        if (Object.FindFirstObjectByType<PauseMenu>() == null)
+        {
+            GameObject pauseGO = new GameObject("PauseMenu");
+            pauseGO.AddComponent<PauseMenu>();
         }
 
         return uiManager;
@@ -446,7 +569,7 @@ public static class SceneBootstrapper
 
         for (int i = canvasObject.transform.childCount - 1; i >= 0; i--)
         {
-            Object.Destroy(canvasObject.transform.GetChild(i).gameObject);
+            DestroySafe(canvasObject.transform.GetChild(i).gameObject);
         }
 
         GameObject crosshairObject = new GameObject("Crosshair");
@@ -496,7 +619,11 @@ public static class SceneBootstrapper
 
     static GameManager CreateGameManager(GameObject zombieTemplate, List<Transform> spawnPoints)
     {
-        GameManager gameManager = FindComponentInActiveScene<GameManager>();
+        GameManager gameManager = GameManager.Instance;
+        if (gameManager == null)
+        {
+            gameManager = FindComponentInActiveScene<GameManager>();
+        }
         if (gameManager == null)
         {
             GameObject gameManagerObject = new GameObject("GameManager");
@@ -537,23 +664,46 @@ public static class SceneBootstrapper
         }
 
         GameObject zone = new GameObject("Residential Block");
-        CreateZoneTrigger(zone.transform, "Residential Block", new Vector3(-22f, 1.5f, -8f), new Vector3(34f, 3f, 26f));
+        CreateZoneTrigger(zone.transform, "Residential Block", new Vector3(-22f, 1.5f, -8f), new Vector3(50f, 3f, 50f));
         CreateZoneObjective(zone.transform, "Residential Block", "res_keys", "Recover the shelter key");
 
-        CreateBuilding(zone.transform, "House A", new Vector3(-32f, 0f, -8f), new Vector3(12f, 8f, 10f), new Color(0.61f, 0.52f, 0.44f));
-        CreateBuilding(zone.transform, "House B", new Vector3(-16f, 0f, -8f), new Vector3(12f, 8f, 10f), new Color(0.52f, 0.57f, 0.45f));
-        CreateBuilding(zone.transform, "House C", new Vector3(-24f, 0f, 8f), new Vector3(14f, 8f, 10f), new Color(0.48f, 0.46f, 0.56f));
+        // Casas existentes com texturas melhoradas
+        CreateTexturedBuilding(zone.transform, "House A", new Vector3(-32f, 0f, -8f), new Vector3(12f, 9f, 10f), new Color(0.61f, 0.52f, 0.44f), "brick");
+        CreateTexturedBuilding(zone.transform, "House B", new Vector3(-16f, 0f, -8f), new Vector3(12f, 8f, 12f), new Color(0.52f, 0.57f, 0.45f), "wood");
+        CreateTexturedBuilding(zone.transform, "House C", new Vector3(-24f, 0f, 8f), new Vector3(14f, 10f, 11f), new Color(0.48f, 0.46f, 0.56f), "concrete");
+
+        // NOVAS CASAS ADICIONADAS
+        CreateTexturedBuilding(zone.transform, "House D", new Vector3(-44f, 0f, -5f), new Vector3(10f, 7f, 10f), new Color(0.72f, 0.55f, 0.41f), "brick");
+        CreateTexturedBuilding(zone.transform, "House E", new Vector3(-38f, 0f, 12f), new Vector3(11f, 8f, 11f), new Color(0.55f, 0.65f, 0.52f), "wood");
+        CreateTexturedBuilding(zone.transform, "House F - Garage", new Vector3(-8f, 0f, 8f), new Vector3(8f, 5f, 12f), new Color(0.45f, 0.48f, 0.52f), "metal");
+        CreateTexturedBuilding(zone.transform, "House G - Two Story", new Vector3(-50f, 0f, -18f), new Vector3(13f, 14f, 12f), new Color(0.68f, 0.62f, 0.48f), "brick");
+
+        // Elementos de cenário
         CreateYardCover(zone.transform, new Vector3(-24f, 1f, -20f), new Vector3(10f, 2f, 4f));
         CreateCarWreck(zone.transform, new Vector3(-8f, 0.8f, -9f), new Color(0.32f, 0.21f, 0.19f));
+        CreateCarWreck(zone.transform, new Vector3(-42f, 0.8f, 2f), new Color(0.45f, 0.38f, 0.35f));
 
+        // LOOTS EXPANDIDOS
         CreateLootCache(zone.transform, "Pantry", "Residential Block", "Food", new Vector3(-32f, 1f, -11f), new Color(0.82f, 0.71f, 0.32f), 2, 0, 0);
         CreateLootCache(zone.transform, "Medicine Cabinet", "Residential Block", "Meds", new Vector3(-16f, 1f, -11f), new Color(0.57f, 0.88f, 0.75f), 1, 0, 20);
         CreateLootCache(zone.transform, "Backpack", "Residential Block", "Keys", new Vector3(-24f, 1f, 5f), new Color(0.64f, 0.47f, 0.31f), 1, 0, 0);
+
+        // NOVOS SUPRIMENTOS
+        CreateLootCache(zone.transform, "Kitchen Supplies", "Residential Block", "Food", new Vector3(-44f, 1f, -8f), new Color(0.92f, 0.81f, 0.42f), 3, 0, 0);
+        CreateLootCache(zone.transform, "Bedroom Safe", "Residential Block", "Ammo", new Vector3(-38f, 1f, 10f), new Color(0.38f, 0.52f, 0.66f), 1, 15, 0);
+        CreateLootCache(zone.transform, "Garage Toolbox", "Residential Block", "Scrap", new Vector3(-8f, 1f, 5f), new Color(0.55f, 0.48f, 0.38f), 2, 0, 0);
+        CreateLootCache(zone.transform, "Attic Storage", "Residential Block", "Meds", new Vector3(-50f, 3f, -18f), new Color(0.47f, 0.78f, 0.65f), 1, 0, 30);
+        CreateAmmoCrate(zone.transform, "Military Crate", "Residential Block", new Vector3(-28f, 1f, 15f), new Vector3(-30f, 1f, -5f));
+
         CreateObjectiveTerminal(zone.transform, "Shelter Key Rack", "Residential Block", "res_keys", "Press E to secure the shelter key", "Recovered shelter key", new Vector3(-24f, 1f, 2f), new Color(0.65f, 0.59f, 0.22f));
 
+        // MAIS ZOMBIES
         CreateZombie(zone.transform, "Residential Block", new Vector3(-28f, 1f, -18f), ZombieAI.ZombieVariant.Walker);
         CreateZombie(zone.transform, "Residential Block", new Vector3(-21f, 1f, -2f), ZombieAI.ZombieVariant.Runner);
         CreateZombie(zone.transform, "Residential Block", new Vector3(-10f, 1f, -15f), ZombieAI.ZombieVariant.Walker);
+        CreateZombie(zone.transform, "Residential Block", new Vector3(-40f, 1f, -8f), ZombieAI.ZombieVariant.Crawler);
+        CreateZombie(zone.transform, "Residential Block", new Vector3(-35f, 1f, 5f), ZombieAI.ZombieVariant.Screamer);
+        CreateZombie(zone.transform, "Residential Block", new Vector3(-45f, 1f, 15f), ZombieAI.ZombieVariant.Walker);
     }
 
     static void CreateShelterZone()
@@ -564,21 +714,27 @@ public static class SceneBootstrapper
         }
 
         GameObject zone = new GameObject("Shelter Yard");
-        CreateZoneTrigger(zone.transform, "Shelter Yard", new Vector3(0f, 1.5f, -6f), new Vector3(26f, 3f, 22f));
+        CreateZoneTrigger(zone.transform, "Shelter Yard", new Vector3(0f, 1.5f, -6f), new Vector3(35f, 3f, 35f));
         CreateZoneObjective(zone.transform, "Shelter Yard", "shelter_gate", "Seal the shelter entrance");
 
-        CreateBuilding(zone.transform, "Shelter", new Vector3(0f, 0f, -6f), new Vector3(18f, 8f, 12f), new Color(0.36f, 0.42f, 0.47f));
+        CreateTexturedBuilding(zone.transform, "Shelter", new Vector3(0f, 0f, -6f), new Vector3(18f, 8f, 12f), new Color(0.36f, 0.42f, 0.47f), "concrete");
+        CreateTexturedBuilding(zone.transform, "Guard Tower", new Vector3(-12f, 0f, -6f), new Vector3(4f, 12f, 4f), new Color(0.42f, 0.45f, 0.48f), "metal");
+
         CreateObstacle(zone.transform, "Barricade Left", new Vector3(-9f, 1.5f, 4f), new Vector3(5f, 3f, 2f), new Color(0.33f, 0.25f, 0.2f));
         CreateObstacle(zone.transform, "Barricade Right", new Vector3(9f, 1.5f, 4f), new Vector3(5f, 3f, 2f), new Color(0.33f, 0.25f, 0.2f));
-        CreateSandbagLine(zone.transform, new Vector3(0f, 0.6f, 8f), 5);
+        CreateSandbagLine(zone.transform, new Vector3(0f, 0.6f, 8f), 8);
         CreateObjectiveTerminal(zone.transform, "Shelter Gate Console", "Shelter Yard", "shelter_gate", "Press E to seal shelter gate", "Shelter entrance secured", new Vector3(0f, 1f, 1f), new Color(0.4f, 0.58f, 0.66f), "Keys", 1, false);
 
+        // Mais suprimentos no Shelter
         CreateLootCache(zone.transform, "Locker", "Shelter Yard", "Ammo", new Vector3(-4f, 1f, -4f), new Color(0.48f, 0.72f, 0.86f), 1, 12, 0);
         CreateLootCache(zone.transform, "Shelter Cabinet", "Shelter Yard", "Food", new Vector3(3f, 1f, -4f), new Color(0.82f, 0.71f, 0.32f), 2, 0, 0);
+        CreateLootCache(zone.transform, "Emergency Stash", "Shelter Yard", "Meds", new Vector3(-12f, 3f, -6f), new Color(0.67f, 0.98f, 0.85f), 3, 0, 50);
+        CreateAmmoCrate(zone.transform, "Armory", "Shelter Yard", new Vector3(8f, 1f, 2f), new Vector3(10f, 1f, 4f));
 
         CreateZombie(zone.transform, "Shelter Yard", new Vector3(-11f, 1f, 8f), ZombieAI.ZombieVariant.Walker);
         CreateZombie(zone.transform, "Shelter Yard", new Vector3(12f, 1f, 9f), ZombieAI.ZombieVariant.Crawler);
         CreateZombie(zone.transform, "Shelter Yard", new Vector3(0f, 1f, 8f), ZombieAI.ZombieVariant.Runner);
+        CreateZombie(zone.transform, "Shelter Yard", new Vector3(-15f, 1f, -2f), ZombieAI.ZombieVariant.Screamer);
     }
 
     static void CreateClinicZone()
@@ -589,21 +745,28 @@ public static class SceneBootstrapper
         }
 
         GameObject zone = new GameObject("Clinic");
-        CreateZoneTrigger(zone.transform, "Clinic", new Vector3(28f, 1.5f, -10f), new Vector3(24f, 3f, 28f));
+        CreateZoneTrigger(zone.transform, "Clinic", new Vector3(28f, 1.5f, -10f), new Vector3(35f, 3f, 40f));
         CreateZoneObjective(zone.transform, "Clinic", "clinic_meds", "Find emergency medicine");
 
-        CreateBuilding(zone.transform, "Clinic Building", new Vector3(28f, 0f, -10f), new Vector3(18f, 8f, 16f), new Color(0.76f, 0.78f, 0.82f));
+        CreateTexturedBuilding(zone.transform, "Clinic Building", new Vector3(28f, 0f, -10f), new Vector3(18f, 10f, 16f), new Color(0.76f, 0.78f, 0.82f), "concrete");
+        CreateTexturedBuilding(zone.transform, "Pharmacy", new Vector3(42f, 0f, -5f), new Vector3(10f, 6f, 8f), new Color(0.65f, 0.72f, 0.78f), "brick");
+
         CreateObstacle(zone.transform, "Ambulance Bay", new Vector3(28f, 1.5f, 2f), new Vector3(10f, 3f, 4f), new Color(0.65f, 0.65f, 0.68f));
+        CreateCarWreck(zone.transform, new Vector3(20f, 0.8f, 5f), new Color(0.72f, 0.72f, 0.75f));
         CreateObjectiveTerminal(zone.transform, "Medical Fridge", "Clinic", "clinic_meds", "Press E to secure medicine", "Emergency medicine recovered", new Vector3(30f, 1f, -12f), new Color(0.58f, 0.92f, 0.92f));
 
+        // Mais suprimentos médicos
         CreateLootCache(zone.transform, "Pharmacy Shelf", "Clinic", "Meds", new Vector3(22f, 1f, -11f), new Color(0.57f, 0.88f, 0.75f), 1, 0, 25);
         CreateLootCache(zone.transform, "Treatment Room", "Clinic", "Meds", new Vector3(33f, 1f, -11f), new Color(0.57f, 0.88f, 0.75f), 1, 0, 25);
         CreateLootCache(zone.transform, "Security Box", "Clinic", "Ammo", new Vector3(28f, 1f, -3f), new Color(0.48f, 0.72f, 0.86f), 1, 10, 0);
+        CreateLootCache(zone.transform, "Pharmacy Stock", "Clinic", "Meds", new Vector3(42f, 1f, -5f), new Color(0.47f, 0.78f, 0.65f), 2, 0, 40);
+        CreateLootCache(zone.transform, "Doctor's Office", "Clinic", "Meds", new Vector3(38f, 1f, -15f), new Color(0.47f, 0.78f, 0.65f), 1, 0, 35);
 
         CreateZombie(zone.transform, "Clinic", new Vector3(18f, 1f, -6f), ZombieAI.ZombieVariant.Screamer);
         CreateZombie(zone.transform, "Clinic", new Vector3(34f, 1f, -1f), ZombieAI.ZombieVariant.Walker);
         CreateZombie(zone.transform, "Clinic", new Vector3(38f, 1f, -18f), ZombieAI.ZombieVariant.Runner);
         CreateZombie(zone.transform, "Clinic", new Vector3(24f, 1f, -18f), ZombieAI.ZombieVariant.Walker);
+        CreateZombie(zone.transform, "Clinic", new Vector3(45f, 1f, -2f), ZombieAI.ZombieVariant.Crawler);
     }
 
     static void CreateWarehouseZone()
@@ -614,22 +777,31 @@ public static class SceneBootstrapper
         }
 
         GameObject zone = new GameObject("Warehouse");
-        CreateZoneTrigger(zone.transform, "Warehouse", new Vector3(-28f, 1.5f, 24f), new Vector3(26f, 3f, 28f));
+        CreateZoneTrigger(zone.transform, "Warehouse", new Vector3(-28f, 1.5f, 24f), new Vector3(50f, 3f, 50f));
         CreateZoneObjective(zone.transform, "Warehouse", "warehouse_parts", "Recover generator parts");
 
-        CreateBuilding(zone.transform, "Warehouse Building", new Vector3(-28f, 0f, 24f), new Vector3(22f, 10f, 18f), new Color(0.39f, 0.42f, 0.46f));
-        CreateObstacle(zone.transform, "Container A", new Vector3(-18f, 1.2f, 28f), new Vector3(4f, 2.4f, 8f), new Color(0.7f, 0.36f, 0.24f));
-        CreateObstacle(zone.transform, "Container B", new Vector3(-38f, 1.2f, 21f), new Vector3(4f, 2.4f, 8f), new Color(0.2f, 0.46f, 0.57f));
+        // Edificio Principal
+        CreateTexturedBuilding(zone.transform, "Warehouse Main", new Vector3(-28f, 0f, 24f), new Vector3(22f, 12f, 18f), new Color(0.39f, 0.42f, 0.46f), "concrete");
+        
+        // Contentores Extras
+        CreateObstacle(zone.transform, "Container A", new Vector3(-18f, 1.2f, 28f), new Vector3(4f, 2.4f, 8f), new Color(0.7f, 0.36f, 0.24f), "MetalSheetTexture");
+        CreateObstacle(zone.transform, "Container B", new Vector3(-38f, 1.2f, 21f), new Vector3(4f, 2.4f, 8f), new Color(0.2f, 0.46f, 0.57f), "MetalSheetTexture");
+        CreateObstacle(zone.transform, "Container C", new Vector3(-42f, 1.2f, 30f), new Vector3(4f, 2.4f, 8f), new Color(0.25f, 0.35f, 0.25f), "MetalSheetTexture");
+        
         CreateObjectiveTerminal(zone.transform, "Generator Crate", "Warehouse", "warehouse_parts", "Press E to secure generator parts", "Generator parts recovered", new Vector3(-28f, 1f, 25f), new Color(0.73f, 0.52f, 0.22f));
 
+        // LOOTS
         CreateLootCache(zone.transform, "Tool Crate", "Warehouse", "Scrap", new Vector3(-30f, 1f, 20f), new Color(0.64f, 0.47f, 0.31f), 2, 0, 0);
         CreateLootCache(zone.transform, "Storage Shelf", "Warehouse", "Food", new Vector3(-25f, 1f, 28f), new Color(0.82f, 0.71f, 0.32f), 2, 0, 0);
-        CreateLootCache(zone.transform, "Ammo Box", "Warehouse", "Ammo", new Vector3(-34f, 1f, 28f), new Color(0.48f, 0.72f, 0.86f), 1, 15, 0);
+        CreateLootCache(zone.transform, "Industrial Ammo", "Warehouse", "Ammo", new Vector3(-34f, 1f, 28f), new Color(0.48f, 0.72f, 0.86f), 2, 25, 0);
+        CreateAmmoCrate(zone.transform, "Warehouse Armory", "Warehouse", new Vector3(-40f, 1f, 15f), new Vector3(-42f, 1f, 12f));
 
+        // ZOMBIES
         CreateZombie(zone.transform, "Warehouse", new Vector3(-19f, 1f, 12f), ZombieAI.ZombieVariant.Tank);
         CreateZombie(zone.transform, "Warehouse", new Vector3(-32f, 1f, 14f), ZombieAI.ZombieVariant.Walker);
         CreateZombie(zone.transform, "Warehouse", new Vector3(-36f, 1f, 31f), ZombieAI.ZombieVariant.Runner);
         CreateZombie(zone.transform, "Warehouse", new Vector3(-20f, 1f, 34f), ZombieAI.ZombieVariant.Crawler);
+        CreateZombie(zone.transform, "Warehouse", new Vector3(-45f, 1f, 25f), ZombieAI.ZombieVariant.Walker);
     }
 
     static void CreateFuelDepotZone()
@@ -640,21 +812,30 @@ public static class SceneBootstrapper
         }
 
         GameObject zone = new GameObject("Fuel Depot");
-        CreateZoneTrigger(zone.transform, "Fuel Depot", new Vector3(30f, 1.5f, 24f), new Vector3(28f, 3f, 28f));
+        CreateZoneTrigger(zone.transform, "Fuel Depot", new Vector3(30f, 1.5f, 24f), new Vector3(50f, 3f, 50f));
         CreateZoneObjective(zone.transform, "Fuel Depot", "fuel_power", "Restore extraction power");
 
-        CreateBuilding(zone.transform, "Depot Shop", new Vector3(38f, 0f, 24f), new Vector3(16f, 8f, 12f), new Color(0.56f, 0.34f, 0.29f));
-        CreateObstacle(zone.transform, "Pump Island", new Vector3(24f, 1.5f, 24f), new Vector3(10f, 3f, 4f), new Color(0.53f, 0.54f, 0.56f));
-        CreateObstacle(zone.transform, "Tank", new Vector3(26f, 1.5f, 34f), new Vector3(8f, 3f, 8f), new Color(0.29f, 0.34f, 0.37f));
+        // Loja de Conveniencia
+        CreateTexturedBuilding(zone.transform, "Depot Shop", new Vector3(38f, 0f, 24f), new Vector3(16f, 8f, 12f), new Color(0.56f, 0.34f, 0.29f), "brick");
+        
+        // Bombas e Tanques
+        CreateObstacle(zone.transform, "Pump Island", new Vector3(24f, 1.5f, 24f), new Vector3(10f, 3f, 4f), new Color(0.53f, 0.54f, 0.56f), "MetalSheetTexture");
+        CreateObstacle(zone.transform, "Fuel Tank A", new Vector3(26f, 2.5f, 34f), new Vector3(8f, 5f, 8f), new Color(0.29f, 0.34f, 0.37f), "MetalSheetTexture");
+        CreateObstacle(zone.transform, "Fuel Tank B", new Vector3(12f, 2.5f, 38f), new Vector3(8f, 5f, 8f), new Color(0.29f, 0.34f, 0.37f), "MetalSheetTexture");
+
         CreateObjectiveTerminal(zone.transform, "Power Relay", "Fuel Depot", "fuel_power", "Press E to restore extraction power", "Extraction grid online", new Vector3(34f, 1f, 24f), new Color(0.86f, 0.7f, 0.2f), "Fuel", 1, true);
 
+        // LOOTS
         CreateLootCache(zone.transform, "Cash Counter", "Fuel Depot", "Food", new Vector3(39f, 1f, 21f), new Color(0.82f, 0.71f, 0.32f), 1, 0, 0);
-        CreateLootCache(zone.transform, "Service Shelf", "Fuel Depot", "Ammo", new Vector3(34f, 1f, 28f), new Color(0.48f, 0.72f, 0.86f), 1, 10, 0);
+        CreateLootCache(zone.transform, "Service Shelf", "Fuel Depot", "Ammo", new Vector3(34f, 1f, 28f), new Color(0.48f, 0.72f, 0.86f), 2, 20, 0);
         CreateLootCache(zone.transform, "Fuel Canister", "Fuel Depot", "Fuel", new Vector3(41f, 1f, 27f), new Color(0.74f, 0.58f, 0.14f), 1, 0, 0);
+        CreateLootCache(zone.transform, "Extra Fuel", "Fuel Depot", "Fuel", new Vector3(20f, 1f, 34f), new Color(0.74f, 0.58f, 0.14f), 1, 0, 0);
 
+        // ZOMBIES
         CreateZombie(zone.transform, "Fuel Depot", new Vector3(18f, 1f, 21f), ZombieAI.ZombieVariant.Screamer);
         CreateZombie(zone.transform, "Fuel Depot", new Vector3(26f, 1f, 13f), ZombieAI.ZombieVariant.Runner);
         CreateZombie(zone.transform, "Fuel Depot", new Vector3(41f, 1f, 33f), ZombieAI.ZombieVariant.Walker);
+        CreateZombie(zone.transform, "Fuel Depot", new Vector3(15f, 1f, 30f), ZombieAI.ZombieVariant.Walker);
     }
 
     static void CreateBuilding(Transform parent, string name, Vector3 position, Vector3 scale, Color color)
@@ -663,23 +844,128 @@ public static class SceneBootstrapper
         building.transform.SetParent(parent);
         building.transform.position = position;
 
-        CreateObstacle(building.transform, "Floor", position + new Vector3(0f, 0.1f, 0f), new Vector3(scale.x, 0.2f, scale.z), new Color(color.r * 0.65f, color.g * 0.65f, color.b * 0.65f));
-        CreateObstacle(building.transform, "Back Wall", position + new Vector3(0f, scale.y * 0.5f, -scale.z * 0.5f), new Vector3(scale.x, scale.y, 0.4f), color);
-        CreateObstacle(building.transform, "Left Wall", position + new Vector3(-scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color);
-        CreateObstacle(building.transform, "Right Wall", position + new Vector3(scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color);
-        CreateObstacle(building.transform, "Front Left", position + new Vector3(-scale.x * 0.28f, scale.y * 0.5f, scale.z * 0.5f), new Vector3(scale.x * 0.44f, scale.y, 0.4f), color);
-        CreateObstacle(building.transform, "Front Right", position + new Vector3(scale.x * 0.28f, scale.y * 0.5f, scale.z * 0.5f), new Vector3(scale.x * 0.44f, scale.y, 0.4f), color);
-        CreateObstacle(building.transform, "Lintel", position + new Vector3(0f, scale.y - 1f, scale.z * 0.5f), new Vector3(scale.x * 0.16f, 2f, 0.4f), color);
+        CreateObstacle(building.transform, "Floor", position + new Vector3(0f, 0.1f, 0f), new Vector3(scale.x, 0.2f, scale.z), new Color(color.r * 0.65f, color.g * 0.65f, color.b * 0.65f), "GroundTexture");
+        CreateObstacle(building.transform, "Back Wall", position + new Vector3(0f, scale.y * 0.5f, -scale.z * 0.5f), new Vector3(scale.x, scale.y, 0.4f), color, "BuildingBrickTexture");
+        CreateObstacle(building.transform, "Left Wall", position + new Vector3(-scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color, "BuildingBrickTexture");
+        CreateObstacle(building.transform, "Right Wall", position + new Vector3(scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color, "BuildingBrickTexture");
+        CreateObstacle(building.transform, "Front Left", position + new Vector3(-scale.x * 0.28f, scale.y * 0.5f, scale.z * 0.5f), new Vector3(scale.x * 0.44f, scale.y, 0.4f), color, "BuildingBrickTexture");
     }
 
-    static void CreateObstacle(Transform parent, string name, Vector3 position, Vector3 scale, Color color)
+    static void CreateTexturedBuilding(Transform parent, string name, Vector3 position, Vector3 scale, Color color, string textureType)
+    {
+        GameObject building = new GameObject(name);
+        building.transform.SetParent(parent);
+        building.transform.position = position;
+
+        // Escolhe a textura baseada no tipo
+        string wallTexture = "BuildingBrickTexture";
+        string floorTexture = "GroundTexture";
+        Color roofColor = new Color(color.r * 0.7f, color.g * 0.7f, color.b * 0.7f);
+
+        switch(textureType.ToLower())
+        {
+            case "brick":
+                wallTexture = "BuildingBrickTexture";
+                break;
+            case "wood":
+                wallTexture = "WoodPlanksTexture";
+                roofColor = new Color(0.4f, 0.35f, 0.28f);
+                break;
+            case "concrete":
+                wallTexture = "ConcreteTexture";
+                break;
+            case "metal":
+                wallTexture = "MetalSheetTexture";
+                roofColor = new Color(0.45f, 0.48f, 0.52f);
+                break;
+        }
+
+        // Chao
+        CreateObstacle(building.transform, "Floor", position + new Vector3(0f, 0.1f, 0f), new Vector3(scale.x, 0.2f, scale.z), new Color(color.r * 0.65f, color.g * 0.65f, color.b * 0.65f), floorTexture);
+
+        // Paredes com textura
+        CreateObstacle(building.transform, "Back Wall", position + new Vector3(0f, scale.y * 0.5f, -scale.z * 0.5f), new Vector3(scale.x, scale.y, 0.4f), color, wallTexture);
+        CreateObstacle(building.transform, "Left Wall", position + new Vector3(-scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color, wallTexture);
+        CreateObstacle(building.transform, "Right Wall", position + new Vector3(scale.x * 0.5f, scale.y * 0.5f, 0f), new Vector3(0.4f, scale.y, scale.z), color, wallTexture);
+        CreateObstacle(building.transform, "Front Left", position + new Vector3(-scale.x * 0.28f, scale.y * 0.5f, scale.z * 0.5f), new Vector3(scale.x * 0.44f, scale.y, 0.4f), color, wallTexture);
+        CreateObstacle(building.transform, "Front Right", position + new Vector3(scale.x * 0.28f, scale.y * 0.5f, scale.z * 0.5f), new Vector3(scale.x * 0.44f, scale.y, 0.4f), color, wallTexture);
+        CreateObstacle(building.transform, "Lintel", position + new Vector3(0f, scale.y - 1f, scale.z * 0.5f), new Vector3(scale.x * 0.16f, 2f, 0.4f), color, wallTexture);
+
+        // Telhado
+        GameObject roof = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        roof.name = "Roof";
+        roof.transform.SetParent(building.transform);
+        roof.transform.position = position + new Vector3(0f, scale.y + 0.5f, 0f);
+        roof.transform.localScale = new Vector3(scale.x + 1f, 1f, scale.z + 1f);
+        SetRendererTexture(roof.GetComponent<Renderer>(), roofColor, "RoofTexture");
+
+        // Janelas (decoração)
+        CreateWindow(building.transform, "Window Left", position + new Vector3(-scale.x * 0.25f, scale.y * 0.6f, scale.z * 0.5f));
+        CreateWindow(building.transform, "Window Right", position + new Vector3(scale.x * 0.25f, scale.y * 0.6f, scale.z * 0.5f));
+
+        // Porta
+        CreateDoor(building.transform, "Door", position + new Vector3(0f, scale.y * 0.25f, scale.z * 0.5f));
+    }
+
+    static void CreateWindow(Transform parent, string name, Vector3 position)
+    {
+        GameObject window = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        window.name = name;
+        window.transform.SetParent(parent);
+        window.transform.position = position;
+        window.transform.localScale = new Vector3(1.5f, 1.2f, 0.2f);
+        SetRendererTexture(window.GetComponent<Renderer>(), new Color(0.7f, 0.85f, 0.95f, 0.6f), "WindowTexture");
+    }
+
+    static void CreateDoor(Transform parent, string name, Vector3 position)
+    {
+        GameObject door = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        door.name = name;
+        door.transform.SetParent(parent);
+        door.transform.position = position;
+        door.transform.localScale = new Vector3(1.8f, 2.2f, 0.3f);
+        SetRendererTexture(door.GetComponent<Renderer>(), new Color(0.35f, 0.28f, 0.22f), "WoodPlanksTexture");
+    }
+
+    static void CreateAmmoCrate(Transform parent, string name, string zoneName, Vector3 position, Vector3 secondaryPosition)
+    {
+        // Cria um conjunto de caixas de munição
+        CreateLootCache(parent, name + " A", zoneName, "Ammo", position, new Color(0.28f, 0.42f, 0.28f), 1, 30, 0);
+        CreateLootCache(parent, name + " B", zoneName, "Ammo", position + new Vector3(1.5f, 0f, 0.5f), new Color(0.28f, 0.42f, 0.28f), 1, 25, 0);
+
+        // Adiciona caixas visuais extras
+        GameObject crateA = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        crateA.name = "Ammo Box Visual";
+        crateA.transform.SetParent(parent);
+        crateA.transform.position = secondaryPosition;
+        crateA.transform.localScale = new Vector3(0.8f, 0.5f, 1.2f);
+        SetRendererTexture(crateA.GetComponent<Renderer>(), new Color(0.32f, 0.45f, 0.32f), "MetalSheetTexture");
+
+        // Adiciona uma arma no topo
+        CreateWeaponPickup(parent, "Rifle Pickup", zoneName, secondaryPosition + new Vector3(0f, 0.5f, 0f));
+    }
+
+    static void CreateWeaponPickup(Transform parent, string name, string zoneName, Vector3 position)
+    {
+        GameObject weapon = new GameObject(name);
+        weapon.transform.SetParent(parent);
+        weapon.transform.position = position;
+        weapon.transform.localScale = Vector3.one;
+        weapon.transform.rotation = Quaternion.Euler(0f, -45f, 0f);
+        
+        CreateWeaponVisuals(weapon.transform, false);
+        
+        SetRendererTexture(weapon.GetComponentInChildren<Renderer>(), new Color(0.25f, 0.25f, 0.28f), "MetalSheetTexture");
+    }
+
+    static void CreateObstacle(Transform parent, string name, Vector3 position, Vector3 scale, Color color, string textureName = "")
     {
         GameObject obstacle = GameObject.CreatePrimitive(PrimitiveType.Cube);
         obstacle.name = name;
         obstacle.transform.SetParent(parent);
         obstacle.transform.position = position;
         obstacle.transform.localScale = scale;
-        SetRendererColor(obstacle.GetComponent<Renderer>(), color);
+        if (string.IsNullOrEmpty(textureName)) SetRendererTexture(obstacle.GetComponent<Renderer>(), color, "BuildingBrickTexture"); else SetRendererTexture(obstacle.GetComponent<Renderer>(), color, textureName);
     }
 
     static void CreateYardCover(Transform parent, Vector3 position, Vector3 scale)
@@ -733,7 +1019,7 @@ public static class SceneBootstrapper
         cache.transform.SetParent(parent);
         cache.transform.position = position;
         cache.transform.localScale = new Vector3(1.4f, 1f, 1.4f);
-        SetRendererColor(cache.GetComponent<Renderer>(), color);
+        SetRendererTexture(cache.GetComponent<Renderer>(), color, "BuildingBrickTexture");
 
         LootContainer loot = cache.AddComponent<LootContainer>();
         loot.zoneName = zoneName;
@@ -767,7 +1053,7 @@ public static class SceneBootstrapper
         terminal.transform.SetParent(parent);
         terminal.transform.position = position;
         terminal.transform.localScale = new Vector3(1.1f, 1f, 1.1f);
-        SetRendererColor(terminal.GetComponent<Renderer>(), color);
+        SetRendererTexture(terminal.GetComponent<Renderer>(), color, "BuildingBrickTexture");
 
         ObjectiveInteractable interactable = terminal.AddComponent<ObjectiveInteractable>();
         interactable.zoneName = zoneName;
@@ -800,7 +1086,7 @@ public static class SceneBootstrapper
 
     static void CreateCarWreck(Transform parent, Vector3 position, Color color)
     {
-        CreateObstacle(parent, "Car Body", position, new Vector3(3.4f, 1.1f, 1.8f), color);
+        CreateObstacle(parent, "Car Body", position, new Vector3(3.4f, 1.1f, 1.8f), color, "BuildingBrickTexture");
         CreateObstacle(parent, "Car Roof", position + new Vector3(0.2f, 0.85f, 0f), new Vector3(1.8f, 0.6f, 1.5f), new Color(color.r * 0.8f, color.g * 0.8f, color.b * 0.8f));
     }
 
@@ -833,43 +1119,290 @@ public static class SceneBootstrapper
             return;
         }
 
-        Material material = GetOrCreateSharedMaterial(color);
+        Material material = GetOrCreateSharedMaterial(color, string.Empty);
         if (material != null)
         {
             renderer.sharedMaterial = material;
         }
     }
 
-    static Material GetOrCreateSharedMaterial(Color color)
+    static void SetRendererTexture(Renderer renderer, Color tint, string textureName)
     {
-        Color32 key = color;
-        if (SharedMaterialCache.TryGetValue(key, out Material cached) && cached != null)
+        if (renderer == null)
         {
-            return cached;
+            return;
         }
 
-        if (cachedSurfaceShader == null)
+        Material material = GetOrCreateSharedMaterial(tint, textureName);
+        if (material != null)
         {
-            cachedSurfaceShader = Shader.Find("Universal Render Pipeline/Lit");
-            if (cachedSurfaceShader == null)
+            renderer.sharedMaterial = material;
+        }
+    }
+
+    static Material GetOrCreateSharedMaterial(Color color, string textureName)
+    {
+        string keyName = string.IsNullOrEmpty(textureName) ? "Plain" : textureName;
+        Color32 c32 = color;
+        string key = $"Mat_{keyName}_{c32.r}_{c32.g}_{c32.b}_{c32.a}";
+
+        // Fast cache check
+        foreach (var kvp in SharedMaterialCache)
+        {
+            if (kvp.Value != null && kvp.Value.name == key)
             {
-                cachedSurfaceShader = Shader.Find("Standard");
+                return kvp.Value;
             }
         }
 
         if (cachedSurfaceShader == null)
         {
-            return null;
+            cachedSurfaceShader = Shader.Find("Universal Render Pipeline/Lit");
+            if (cachedSurfaceShader == null) cachedSurfaceShader = Shader.Find("Standard");
         }
 
-        Material material = new Material(cachedSurfaceShader)
+        if (cachedSurfaceShader == null) return null;
+
+        Material material = new Material(cachedSurfaceShader);
+        material.name = key;
+        material.color = color;
+
+        if (!string.IsNullOrEmpty(textureName))
         {
-            color = color,
-            name = $"RuntimeMat_{key.r}_{key.g}_{key.b}_{key.a}"
-        };
-        SharedMaterialCache[key] = material;
+            Debug.Log($"[Bootstrap] Loading texture: {textureName}");
+            Texture2D tex = Resources.Load<Texture2D>("Textures/" + textureName);
+            if (tex == null) tex = Resources.Load<Texture2D>(textureName);
+
+            if (tex != null)
+            {
+                material.mainTexture = tex;
+                if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", tex);
+                if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", tex);
+                Debug.Log($"[Bootstrap] Successfully applied texture: {textureName}");
+            }
+            else
+            {
+                Debug.LogWarning($"[Bootstrap] FAILED to load texture: {textureName}. Check Assets/Resources/Textures/");
+            }
+        }
+
+        // Use a dummy Color32 key for the dictionary since it's already defined as Dictionary<Color32, Material>
+        // but we'll manually manage collisions if needed. 
+        // For now, let's just stick it in with a deterministic key.
+        SharedMaterialCache[new Color32(c32.r, c32.g, c32.b, (byte)(SharedMaterialCache.Count % 256))] = material;
         return material;
     }
+
+    static void ApplyStylizedDecoration()
+    {
+#if UNITY_EDITOR
+        ApplyTerrainLayersFromKit();
+        SpawnStylizedNaturePrefabs();
+#endif
+    }
+
+#if UNITY_EDITOR
+    static void ApplyTerrainLayersFromKit()
+    {
+        Terrain terrain = Object.FindFirstObjectByType<Terrain>();
+        if (terrain == null || terrain.terrainData == null)
+        {
+            return;
+        }
+
+        TerrainLayer grass = AssetDatabase.LoadAssetAtPath<TerrainLayer>("Assets/Proxy Games/Stylized Nature Kit Lite/Terrain/Grass.terrainlayer");
+        TerrainLayer dirt = AssetDatabase.LoadAssetAtPath<TerrainLayer>("Assets/Proxy Games/Stylized Nature Kit Lite/Terrain/Dirt.terrainlayer");
+        TerrainLayer rock = AssetDatabase.LoadAssetAtPath<TerrainLayer>("Assets/Proxy Games/Stylized Nature Kit Lite/Terrain/Rock.terrainlayer");
+        TerrainLayer sand = AssetDatabase.LoadAssetAtPath<TerrainLayer>("Assets/Proxy Games/Stylized Nature Kit Lite/Terrain/Sand.terrainlayer");
+
+        List<TerrainLayer> layers = new List<TerrainLayer>();
+        if (grass != null) layers.Add(grass);
+        if (dirt != null) layers.Add(dirt);
+        if (rock != null) layers.Add(rock);
+        if (sand != null) layers.Add(sand);
+
+        if (layers.Count > 0)
+        {
+            terrain.terrainData.terrainLayers = layers.ToArray();
+        }
+
+        terrain.drawInstanced = true;
+        terrain.heightmapPixelError = 10f;
+        terrain.basemapDistance = 1800f;
+    }
+
+    static void SpawnStylizedNaturePrefabs()
+    {
+        if (GameObject.Find("Stylized Dressing") != null)
+        {
+            return;
+        }
+
+        Terrain terrain = Object.FindFirstObjectByType<Terrain>();
+        if (terrain == null || terrain.terrainData == null)
+        {
+            return;
+        }
+
+        GameObject dressingRoot = new GameObject("Stylized Dressing");
+
+        string[] treePaths =
+        {
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Trees/Spruce 1.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Trees/Spruce 2.prefab"
+        };
+
+        string[] rockPaths =
+        {
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Rocks/Standard Rocks/Standard Rock 1.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Rocks/Standard Rocks/Standard Rock 2.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Rocks/Standard Rocks/Standard Rock 3.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Rocks/Standard Rocks/Standard Rock 4.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Rocks/Standard Rocks/Standard Rock 5.prefab"
+        };
+
+        string[] foliagePaths =
+        {
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Bush/Bush.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Flower/Flower.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Grass/Grass.prefab",
+            "Assets/Proxy Games/Stylized Nature Kit Lite/Prefabs/Foliage/Mushroom/Mushrooms Patch.prefab"
+        };
+
+        PlacePrefabSet(treePaths, terrain, dressingRoot.transform, 140, 0.78f, 0.95f, 1.25f, disableColliders: true);
+        PlacePrefabSet(rockPaths, terrain, dressingRoot.transform, 120, 0.68f, 0.85f, 1.35f, disableColliders: false);
+        PlacePrefabSet(foliagePaths, terrain, dressingRoot.transform, 300, 0.82f, 0.7f, 1.15f, disableColliders: true);
+    }
+
+    static void PlacePrefabSet(
+        string[] paths,
+        Terrain terrain,
+        Transform parent,
+        int count,
+        float minNormalY,
+        float minScale,
+        float maxScale,
+        bool disableColliders)
+    {
+        if (paths == null || paths.Length == 0)
+        {
+            return;
+        }
+
+        List<GameObject> prefabs = new List<GameObject>();
+        for (int i = 0; i < paths.Length; i++)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(paths[i]);
+            if (prefab != null)
+            {
+                prefabs.Add(prefab);
+            }
+        }
+
+        if (prefabs.Count == 0)
+        {
+            return;
+        }
+
+        TerrainData data = terrain.terrainData;
+        Vector3 terrainPos = terrain.transform.position;
+
+        Random.InitState(9000 + count);
+        int placed = 0;
+        int maxAttempts = count * 20;
+        for (int attempt = 0; attempt < maxAttempts && placed < count; attempt++)
+        {
+            float x = Random.Range(10f, data.size.x - 10f);
+            float z = Random.Range(10f, data.size.z - 10f);
+            float nx = data.size.x > 0f ? x / data.size.x : 0f;
+            float nz = data.size.z > 0f ? z / data.size.z : 0f;
+            Vector3 normal = data.GetInterpolatedNormal(nx, nz);
+            if (normal.y < minNormalY)
+            {
+                continue;
+            }
+
+            float centerX = data.size.x * 0.5f;
+            float centerZ = data.size.z * 0.5f;
+            if (Mathf.Abs(x - centerX) < 8f || Mathf.Abs(z - centerZ) < 8f)
+            {
+                continue;
+            }
+
+            GameObject chosen = prefabs[Random.Range(0, prefabs.Count)];
+            GameObject instance = PrefabUtility.InstantiatePrefab(chosen) as GameObject;
+            if (instance == null)
+            {
+                continue;
+            }
+
+            instance.transform.SetParent(parent, true);
+            float y = terrain.SampleHeight(new Vector3(terrainPos.x + x, 0f, terrainPos.z + z)) + terrainPos.y;
+            instance.transform.position = new Vector3(terrainPos.x + x, y, terrainPos.z + z);
+            instance.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+            instance.transform.localScale *= Random.Range(minScale, maxScale);
+            SnapInstanceToGround(instance, terrain);
+            if (disableColliders)
+            {
+                DisableAllColliders(instance);
+            }
+            placed++;
+        }
+    }
+
+    static void DisableAllColliders(GameObject root)
+    {
+        if (root == null)
+        {
+            return;
+        }
+
+        Collider[] colliders = root.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            if (colliders[i] != null)
+            {
+                colliders[i].enabled = false;
+            }
+        }
+    }
+
+    static void SnapInstanceToGround(GameObject instance, Terrain terrain)
+    {
+        if (instance == null || terrain == null)
+        {
+            return;
+        }
+
+        Vector3 pos = instance.transform.position;
+        float groundY = terrain.SampleHeight(pos) + terrain.transform.position.y;
+
+        Bounds? bounds = null;
+        Renderer[] renderers = instance.GetComponentsInChildren<Renderer>();
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] == null)
+            {
+                continue;
+            }
+
+            if (!bounds.HasValue)
+            {
+                bounds = renderers[i].bounds;
+            }
+            else
+            {
+                Bounds b = bounds.Value;
+                b.Encapsulate(renderers[i].bounds);
+                bounds = b;
+            }
+        }
+
+        float bottom = bounds.HasValue ? bounds.Value.min.y : pos.y;
+        float delta = groundY - bottom;
+        instance.transform.position = new Vector3(pos.x, pos.y + delta, pos.z);
+    }
+#endif
 
     static void CreateZombieVisuals(Transform root)
     {
@@ -879,34 +1412,34 @@ public static class SceneBootstrapper
         body.transform.localPosition = new Vector3(0f, 0.95f, 0f);
         body.transform.localScale = new Vector3(0.7f, 0.92f, 0.34f);
         body.transform.localRotation = Quaternion.Euler(5f, 0f, 0f);
-        SetRendererColor(body.GetComponent<Renderer>(), new Color(0.22f, 0.34f, 0.28f));
-        Object.Destroy(body.GetComponent<Collider>());
+        SetRendererTexture(body.GetComponent<Renderer>(), Color.white, "ZombieSkinTexture");
+        DestroySafe(body.GetComponent<Collider>());
 
         GameObject head = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         head.name = "Head";
         head.transform.SetParent(root, false);
         head.transform.localPosition = new Vector3(0f, 1.6f, 0.03f);
         head.transform.localScale = new Vector3(0.34f, 0.38f, 0.34f);
-        SetRendererColor(head.GetComponent<Renderer>(), new Color(0.54f, 0.72f, 0.46f));
-        Object.Destroy(head.GetComponent<Collider>());
+        SetRendererTexture(head.GetComponent<Renderer>(), Color.white, "ZombieSkinTexture");
+        DestroySafe(head.GetComponent<Collider>());
 
         GameObject leftArm = GameObject.CreatePrimitive(PrimitiveType.Cube);
         leftArm.name = "Left Arm";
         leftArm.transform.SetParent(root, false);
-        leftArm.transform.localPosition = new Vector3(-0.42f, 0.98f, 0.02f);
-        leftArm.transform.localScale = new Vector3(0.12f, 0.58f, 0.12f);
-        leftArm.transform.localRotation = Quaternion.Euler(0f, 0f, 16f);
-        SetRendererColor(leftArm.GetComponent<Renderer>(), new Color(0.2f, 0.3f, 0.24f));
-        Object.Destroy(leftArm.GetComponent<Collider>());
+        leftArm.transform.localPosition = new Vector3(-0.42f, 1.2f, 0.35f);
+        leftArm.transform.localScale = new Vector3(0.12f, 0.12f, 0.58f);
+        leftArm.transform.localRotation = Quaternion.Euler(15f, 0f, 0f);
+        SetRendererTexture(leftArm.GetComponent<Renderer>(), Color.white, "ZombieSkinTexture");
+        DestroySafe(leftArm.GetComponent<Collider>());
 
         GameObject rightArm = GameObject.CreatePrimitive(PrimitiveType.Cube);
         rightArm.name = "Right Arm";
         rightArm.transform.SetParent(root, false);
-        rightArm.transform.localPosition = new Vector3(0.42f, 0.98f, 0.02f);
-        rightArm.transform.localScale = new Vector3(0.12f, 0.58f, 0.12f);
-        rightArm.transform.localRotation = Quaternion.Euler(0f, 0f, -16f);
-        SetRendererColor(rightArm.GetComponent<Renderer>(), new Color(0.2f, 0.3f, 0.24f));
-        Object.Destroy(rightArm.GetComponent<Collider>());
+        rightArm.transform.localPosition = new Vector3(0.42f, 1.2f, 0.35f);
+        rightArm.transform.localScale = new Vector3(0.12f, 0.12f, 0.58f);
+        rightArm.transform.localRotation = Quaternion.Euler(15f, 0f, 0f);
+        SetRendererTexture(rightArm.GetComponent<Renderer>(), Color.white, "ZombieSkinTexture");
+        DestroySafe(rightArm.GetComponent<Collider>());
 
         GameObject leftLeg = GameObject.CreatePrimitive(PrimitiveType.Cube);
         leftLeg.name = "Left Leg";
@@ -915,7 +1448,7 @@ public static class SceneBootstrapper
         leftLeg.transform.localScale = new Vector3(0.14f, 0.66f, 0.14f);
         leftLeg.transform.localRotation = Quaternion.Euler(2f, 0f, 0f);
         SetRendererColor(leftLeg.GetComponent<Renderer>(), new Color(0.09f, 0.11f, 0.12f));
-        Object.Destroy(leftLeg.GetComponent<Collider>());
+        DestroySafe(leftLeg.GetComponent<Collider>());
 
         GameObject rightLeg = GameObject.CreatePrimitive(PrimitiveType.Cube);
         rightLeg.name = "Right Leg";
@@ -924,7 +1457,71 @@ public static class SceneBootstrapper
         rightLeg.transform.localScale = new Vector3(0.14f, 0.66f, 0.14f);
         rightLeg.transform.localRotation = Quaternion.Euler(-2f, 0f, 0f);
         SetRendererColor(rightLeg.GetComponent<Renderer>(), new Color(0.09f, 0.11f, 0.12f));
-        Object.Destroy(rightLeg.GetComponent<Collider>());
+        DestroySafe(rightLeg.GetComponent<Collider>());
+    }
+
+    static void CreateWeaponVisuals(Transform parent, bool isFpsView)
+    {
+        // Base de armas estilizada (composicao de primitivas)
+        GameObject weaponBody = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        weaponBody.name = "Body";
+        weaponBody.transform.SetParent(parent, false);
+        
+        if (isFpsView)
+        {
+            weaponBody.transform.localPosition = new Vector3(0.45f, -0.35f, 0.7f);
+            weaponBody.transform.localScale = new Vector3(0.12f, 0.18f, 0.45f);
+        }
+        else
+        {
+            weaponBody.transform.localPosition = Vector3.zero;
+            weaponBody.transform.localScale = new Vector3(0.1f, 0.15f, 0.4f);
+        }
+        SetRendererTexture(weaponBody.GetComponent<Renderer>(), new Color(0.2f, 0.2f, 0.22f), "MetalSheetTexture");
+        DestroySafe(weaponBody.GetComponent<Collider>());
+
+        GameObject barrel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        barrel.name = "Barrel";
+        barrel.transform.SetParent(weaponBody.transform, false);
+        barrel.transform.localPosition = new Vector3(0f, 0.25f, 1.2f);
+        barrel.transform.localScale = new Vector3(0.35f, 1.1f, 0.35f);
+        barrel.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        SetRendererTexture(barrel.GetComponent<Renderer>(), new Color(0.15f, 0.15f, 0.15f), "MetalSheetTexture");
+        DestroySafe(barrel.GetComponent<Collider>());
+
+        GameObject mag = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        mag.name = "Magazine";
+        mag.transform.SetParent(weaponBody.transform, false);
+        mag.transform.localPosition = new Vector3(0f, -0.6f, 0.2f);
+        mag.transform.localScale = new Vector3(0.85f, 1.2f, 0.45f);
+        SetRendererColor(mag.GetComponent<Renderer>(), new Color(0.1f, 0.1f, 0.1f));
+        DestroySafe(mag.GetComponent<Collider>());
+
+        GameObject grip = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        grip.name = "Grip";
+        grip.transform.SetParent(weaponBody.transform, false);
+        grip.transform.localPosition = new Vector3(0f, -0.6f, -0.8f);
+        grip.transform.localScale = new Vector3(0.9f, 0.8f, 0.4f);
+        grip.transform.localRotation = Quaternion.Euler(20f, 0f, 0f);
+        SetRendererTexture(grip.GetComponent<Renderer>(), new Color(0.25f, 0.22f, 0.18f), "WoodPlanksTexture");
+        DestroySafe(grip.GetComponent<Collider>());
+    }
+
+    static void DestroySafe(Object obj)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Object.Destroy(obj);
+        }
+        else
+        {
+            Object.DestroyImmediate(obj);
+        }
     }
 }
 
@@ -932,7 +1529,7 @@ static class RuntimeSceneValidator
 {
     public static bool ValidateCurrentScene()
     {
-        if (SceneManager.GetActiveScene().name != "SampleScene")
+        if (SceneManager.GetActiveScene().name != "Mapa_EXT01")
         {
             return true;
         }
@@ -944,8 +1541,8 @@ static class RuntimeSceneValidator
         ValidateSingleton<UIManager>("UIManager", errors);
         ValidateSingleton<GameOverScreen>("GameOverScreen", errors);
         ValidateSingleton<Crosshair>("Crosshair", errors);
-        ValidateNamedObjectCount("HUD Canvas", 1, errors);
-        ValidateNamedObjectCount("Crosshair Canvas", 1, errors);
+        ValidateMinimumNamedObjectCount("HUD Canvas", 1, errors);
+        ValidateMinimumNamedObjectCount("Crosshair Canvas", 1, errors);
         ValidateNamedObjectCount("Canvas", 0, warnings);
 
         GameObject player = GameObject.FindGameObjectWithTag("Player");
@@ -1025,6 +1622,15 @@ static class RuntimeSceneValidator
         }
     }
 
+    static void ValidateMinimumNamedObjectCount(string objectName, int minExpected, List<string> issues)
+    {
+        int count = CountActiveObjectsByName(objectName);
+        if (count < minExpected)
+        {
+            issues.Add($"{objectName} count is {count} (expected at least {minExpected}).");
+        }
+    }
+
     static int CountActiveObjectsByName(string objectName)
     {
         Scene activeScene = SceneManager.GetActiveScene();
@@ -1048,4 +1654,4 @@ static class RuntimeSceneValidator
         return count;
     }
 }
-*/ // fim do bloco DESATIVADO
+ 

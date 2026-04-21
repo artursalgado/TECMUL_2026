@@ -71,8 +71,9 @@ Jogo em primeira pessoa ambientado num cenário pós-apocalíptico. O jogador ex
 1. Instalar o **Unity Hub** e a versão **6000.3.9f1** do Unity Editor
 2. No Unity Hub, clicar em **"Add"** → selecionar a pasta `TECMUL` (raiz do repositório)
 3. Abrir o projeto
-4. No painel **Project**, navegar até `Assets/Scenes/` e abrir `SampleScene`
-5. Clicar em **Play** para correr o jogo
+4. No painel **Project**, navegar até `Assets/Scenes/`
+5. Abrir `Assets/Mapa_EXT01.unity` (mapa open world principal)
+6. Clicar em **Play** para correr o jogo
 
 ---
 
@@ -103,7 +104,7 @@ Assets/Scripts/
 │   ├── ZoneTrigger.cs          — Deteção de entrada em zona
 │   └── ObjectiveInteractable.cs — Objetivos interativos na cena
 ├── IInteractable.cs            — Interface para objetos interagíveis
-├── SceneBootstrapper.cs        — Setup inicial da cena
+├── SceneBootstrapper.cs        — Legado (desativado)
 └── PrototypeSceneMarker.cs     — Marcador para o gerador de cena (Editor only)
 ```
 

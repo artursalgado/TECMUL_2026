@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
 
 public class GameManager : MonoBehaviour
@@ -12,425 +13,230 @@ public class GameManager : MonoBehaviour
         public bool Completed;
     }
 
-    public static GameManager Instance;
+    public enum GameState
+    {
+        Initializing,
+        MainMenu,
+        Playing,
+        Paused,
+        GameOver
+    }
+
+    public static GameManager Instance { get; private set; }
+    public GameState CurrentState { get; private set; } = GameState.Initializing;
 
     [Header("Dynamic Waves")]
-    [FormerlySerializedAs("prefabZombie")]
     public GameObject zombiePrefab;
-
-    [FormerlySerializedAs("pontosSpawn")]
     public List<Transform> spawnPoints;
-
-    [FormerlySerializedAs("zombiesPorWave")]
     public int zombiesPerWave = 5;
-
-    [FormerlySerializedAs("tempoEntreWaves")]
     public float timeBetweenWaves = 10f;
-
-    [FormerlySerializedAs("multiplicadorWave")]
     public float waveMultiplier = 1.5f;
-
     public bool autoSpawnWaves = false;
 
     [Header("Game State")]
-    [FormerlySerializedAs("waveAtual")]
     public int currentWave = 0;
-
-    [FormerlySerializedAs("pontos")]
     public int score = 0;
 
-    private readonly Dictionary<string, int> zoneZombieTotals = new Dictionary<string, int>();
+    private int suppliesFound = 0;
+    private int totalSupplyCaches = 0;
+    private string activeZone = "Approach";
+    private bool extractionUnlocked;
+
     private readonly Dictionary<string, int> zoneZombieRemaining = new Dictionary<string, int>();
     private readonly Dictionary<string, int> zoneSupplyTotals = new Dictionary<string, int>();
     private readonly Dictionary<string, int> zoneSupplyCollected = new Dictionary<string, int>();
     private readonly Dictionary<string, ObjectiveRecord> objectivesById = new Dictionary<string, ObjectiveRecord>();
 
-    private int aliveZombies = 0;
-    private int suppliesFound = 0;
-    private int totalSupplyCaches = 0;
-    private bool isGameActive = true;
-    private string activeZone = "Approach";
-    private bool extractionUnlocked;
-
     void Awake()
     {
         if (Instance != null && Instance != this)
         {
-            if (Instance.gameObject.activeInHierarchy)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            Instance = null;
+            Destroy(gameObject);
+            return;
         }
-
         Instance = this;
-    }
-
-    void OnDestroy()
-    {
-        if (Instance == this)
-        {
-            Instance = null;
-        }
-    }
-
-    void OnDisable()
-    {
-        if (Instance == this)
-        {
-            Instance = null;
-        }
+        DontDestroyOnLoad(gameObject);
     }
 
     void Start()
     {
-        RefreshHUD();
-
-        if (autoSpawnWaves)
-        {
-            StartNextWave();
-        }
+        string sceneName = SceneManager.GetActiveScene().name;
+        if (sceneName == "MainMenu" || sceneName == "Menu")
+            ChangeState(GameState.MainMenu);
         else
+            ChangeState(GameState.Playing);
+    }
+
+    public void ChangeState(GameState newState)
+    {
+        if (CurrentState == newState) return;
+
+        CurrentState = newState;
+        Debug.Log($"[GameManager] State changed to: {newState}");
+
+        if (UIController.Instance != null)
+            UIController.Instance.SetGameStateUI(newState);
+
+        switch (newState)
         {
-            UpdateObjectiveText();
+            case GameState.MainMenu:
+                Time.timeScale = 1f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                break;
+            case GameState.Playing:
+                Time.timeScale = 1f;
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+                // Carrega o jogo se estiver no menu principal
+                if (SceneManager.GetActiveScene().name == "MainMenu" || SceneManager.GetActiveScene().name == "Menu")
+                    SceneManager.LoadScene("Mapa_EXT01");
+                break;
+            case GameState.Paused:
+                Time.timeScale = 0f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                break;
+            case GameState.GameOver:
+                Time.timeScale = 0f;
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                break;
         }
     }
 
-    void Update()
+    // Methods needed by other scripts
+    public void RegisterSupplyCache(string zone)
     {
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            Application.Quit();
-        }
-    }
-
-    public void RegisterZombie(string zoneName)
-    {
-        if (string.IsNullOrWhiteSpace(zoneName))
-        {
-            zoneName = "Outskirts";
-        }
-
-        if (!zoneZombieTotals.ContainsKey(zoneName))
-        {
-            zoneZombieTotals[zoneName] = 0;
-            zoneZombieRemaining[zoneName] = 0;
-        }
-
-        zoneZombieTotals[zoneName]++;
-        zoneZombieRemaining[zoneName]++;
-        aliveZombies++;
-        UpdateObjectiveText();
-    }
-
-    public void RegisterSupplyCache(string zoneName)
-    {
-        if (string.IsNullOrWhiteSpace(zoneName))
-        {
-            zoneName = "Unknown";
-        }
-
-        if (!zoneSupplyTotals.ContainsKey(zoneName))
-        {
-            zoneSupplyTotals[zoneName] = 0;
-            zoneSupplyCollected[zoneName] = 0;
-        }
-
-        zoneSupplyTotals[zoneName]++;
         totalSupplyCaches++;
+        zone = NormalizeZoneName(zone, "Outskirts");
+        if (!zoneSupplyTotals.ContainsKey(zone)) zoneSupplyTotals[zone] = 0;
+        zoneSupplyTotals[zone]++;
         UpdateSuppliesText();
-        UpdateObjectiveText();
     }
 
-    public void RegisterObjective(string zoneName, string objectiveId, string description)
+    public void CollectSupply(string zone)
     {
-        if (string.IsNullOrWhiteSpace(zoneName) || string.IsNullOrWhiteSpace(objectiveId))
-        {
-            return;
-        }
+        suppliesFound++;
+        zone = NormalizeZoneName(zone, "Outskirts");
+        if (!zoneSupplyCollected.ContainsKey(zone)) zoneSupplyCollected[zone] = 0;
+        zoneSupplyCollected[zone]++;
 
-        if (!objectivesById.ContainsKey(objectiveId))
-        {
-            objectivesById[objectiveId] = new ObjectiveRecord
-            {
-                ZoneName = zoneName,
-                Description = description,
-                Completed = false
-            };
-        }
-
-        UpdateObjectiveText();
-    }
-
-    public void CompleteObjective(string zoneName, string objectiveId)
-    {
-        if (string.IsNullOrWhiteSpace(objectiveId))
-        {
-            return;
-        }
-
-        if (!objectivesById.TryGetValue(objectiveId, out ObjectiveRecord record))
-        {
-            return;
-        }
-
-        record.Completed = true;
-        objectivesById[objectiveId] = record;
-        score += 100;
-
-        if (AllObjectivesCompleted())
-        {
-            extractionUnlocked = true;
-            UIManager.Instance?.ShowMessage("Extraction unlocked");
-        }
-
-        RefreshHUD();
+        AddScore(50);
+        UpdateSuppliesText();
+        CheckExtractionUnlock();
     }
 
     public void EnterZone(string zoneName)
     {
-        if (!isGameActive || string.IsNullOrWhiteSpace(zoneName))
-        {
-            return;
-        }
-
-        if (activeZone == zoneName)
-        {
-            return;
-        }
-
         activeZone = zoneName;
-        UIManager.Instance?.ShowMessage($"Entered {zoneName}");
         UpdateObjectiveText();
     }
 
-    public void CollectSupply(string zoneName, string supplyType, int amount)
+    public void RegisterObjective(string id, string zone, string desc)
     {
-        if (!isGameActive)
-        {
-            return;
-        }
-
-        if (!zoneSupplyCollected.ContainsKey(zoneName))
-        {
-            zoneSupplyCollected[zoneName] = 0;
-        }
-
-        zoneSupplyCollected[zoneName]++;
-        suppliesFound++;
-        score += Mathf.Max(10, amount * 5);
-
-        UIManager.Instance?.ShowMessage($"Looted {supplyType} in {zoneName}");
-        RefreshHUD();
-    }
-
-    public void StartNextWave()
-    {
-        if (!isGameActive || zombiePrefab == null || spawnPoints == null || spawnPoints.Count == 0)
-        {
-            return;
-        }
-
-        currentWave++;
-        int totalZombies = Mathf.RoundToInt(zombiesPerWave * Mathf.Pow(waveMultiplier, currentWave - 1));
-        aliveZombies = totalZombies;
-
-        UIManager.Instance?.UpdateWave(currentWave);
-        StartCoroutine(SpawnZombies(totalZombies));
-    }
-
-    IEnumerator SpawnZombies(int amount)
-    {
-        yield return new WaitForSeconds(3f);
-
-        for (int i = 0; i < amount; i++)
-        {
-            Transform spawnPoint = spawnPoints[Random.Range(0, spawnPoints.Count)];
-            GameObject zombieInstance = Instantiate(zombiePrefab, spawnPoint.position, spawnPoint.rotation);
-            zombieInstance.SetActive(true);
-
-            ZombieHealth zombieHealth = zombieInstance.GetComponent<ZombieHealth>();
-            if (zombieHealth != null)
-            {
-                zombieHealth.zoneName = "Dynamic Infestation";
-            }
-
-            yield return new WaitForSeconds(0.5f);
-        }
-    }
-
-    public void OnZombieKilled(string zoneName)
-    {
-        if (!isGameActive)
-        {
-            return;
-        }
-
-        aliveZombies = Mathf.Max(0, aliveZombies - 1);
-
-        if (!string.IsNullOrWhiteSpace(zoneName) && zoneZombieRemaining.ContainsKey(zoneName))
-        {
-            zoneZombieRemaining[zoneName] = Mathf.Max(0, zoneZombieRemaining[zoneName] - 1);
-
-            if (zoneZombieRemaining[zoneName] == 0)
-            {
-                UIManager.Instance?.ShowMessage($"{zoneName} is clear. Search for supplies.");
-            }
-        }
-
+        objectivesById[id] = new ObjectiveRecord { ZoneName = zone, Description = desc, Completed = false };
         UpdateObjectiveText();
+    }
 
-        if (autoSpawnWaves && aliveZombies <= 0)
+    public void CompleteObjective(string id)
+    {
+        if (objectivesById.ContainsKey(id))
         {
-            UIManager.Instance?.ShowMessage("Wave complete!");
-            Invoke(nameof(StartNextWave), timeBetweenWaves);
+            var record = objectivesById[id];
+            if (record.Completed) return; // Already completed
+
+            record.Completed = true;
+            objectivesById[id] = record;
+            AddScore(100);
+            UpdateObjectiveText();
+            CheckExtractionUnlock();
         }
     }
 
-    public void AddScore(int amount)
+    public void RegisterZombie(string zone)
     {
-        if (!isGameActive)
-        {
-            return;
-        }
-
-        score += amount;
-        RefreshHUD();
+        zone = NormalizeZoneName(zone, "Outskirts");
+        if (!zoneZombieRemaining.ContainsKey(zone)) zoneZombieRemaining[zone] = 0;
+        zoneZombieRemaining[zone]++;
+        UpdateObjectiveText();
     }
 
-    public void GameOver()
+    public void OnZombieKilled(string zone)
     {
-        if (!isGameActive)
-        {
-            return;
-        }
+        zone = NormalizeZoneName(zone, "Outskirts");
+        if (zoneZombieRemaining.ContainsKey(zone) && zoneZombieRemaining[zone] > 0)
+            zoneZombieRemaining[zone]--;
 
-        isGameActive = false;
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        AddScore(10);
+        UpdateObjectiveText();
+        CheckExtractionUnlock();
+    }
 
+    public void GameOver(string reason = "You died.")
+    {
+        ChangeState(GameState.GameOver);
         if (GameOverScreen.Instance != null)
-            GameOverScreen.Instance.ShowGameOver(score);
+        {
+            GameOverScreen.Instance.ShowGameOver(score, reason);
+        }
         else
-            UIManager.Instance?.ShowGameOver(score);
-    }
-
-    public bool CanExtract()
-    {
-        if (!isGameActive) return false;
-        if (extractionUnlocked) return true;
-        // fallback: sem objetivos registados, verifica se todos os supplies foram recolhidos
-        if (objectivesById.Count == 0 && totalSupplyCaches > 0)
-            return suppliesFound >= totalSupplyCaches;
-        return false;
-    }
-
-    public void Extract()
-    {
-        if (!CanExtract())
         {
-            return;
+            Debug.LogWarning("[GameManager] GameOverScreen.Instance is null. Cannot show screen.");
         }
-
-        isGameActive = false;
-        score += 250;
-        UIManager.Instance?.ShowMessage("Extraction successful");
-        TriggerVictory();
     }
 
-    void RefreshHUD()
-    {
-        UIManager.Instance?.UpdateScore(score);
-        UIManager.Instance?.UpdateWave(currentWave);
-        UpdateSuppliesText();
-        UpdateObjectiveText();
-    }
+    public void AddScore(int amount) { score += amount; UIManager.Instance?.UpdateScore(score); }
 
-    void UpdateSuppliesText()
-    {
-        UIManager.Instance?.UpdateSupplies($"Supplies: {suppliesFound}/{Mathf.Max(totalSupplyCaches, 1)}");
-    }
+    public bool CanExtract() => extractionUnlocked || (objectivesById.Count == 0 && totalSupplyCaches > 0 && suppliesFound >= totalSupplyCaches);
 
-    void UpdateObjectiveText()
-    {
-        string zoneText = $"Zone: {activeZone}";
-
-        if (autoSpawnWaves)
-        {
-            UIManager.Instance?.UpdateObjective($"{zoneText}\nHold out and survive the next wave.");
-            return;
-        }
-
-        int zoneZombies = zoneZombieRemaining.ContainsKey(activeZone) ? zoneZombieRemaining[activeZone] : 0;
-        int zoneLoot = zoneSupplyTotals.ContainsKey(activeZone) ? zoneSupplyTotals[activeZone] : 0;
-        int zoneLooted = zoneSupplyCollected.ContainsKey(activeZone) ? zoneSupplyCollected[activeZone] : 0;
-        string zoneObjective = GetObjectiveTextForZone(activeZone);
-        string objective = zoneZombies > 0
-            ? $"Clear {activeZone}: {zoneZombies} infected remaining"
-            : $"Search {activeZone}: {zoneLooted}/{zoneLoot} caches looted";
-
-        if (!string.IsNullOrWhiteSpace(zoneObjective))
-        {
-            objective = $"{zoneObjective}\n{objective}";
-        }
-
-        if (extractionUnlocked)
-        {
-            objective += "\nReturn to extraction point";
-        }
-
-        UIManager.Instance?.UpdateObjective($"{zoneText}\n{objective}");
-    }
-
-    bool AllObjectivesCompleted()
-    {
-        if (objectivesById.Count == 0)
-        {
-            return false;
-        }
-
-        foreach (ObjectiveRecord record in objectivesById.Values)
-        {
-            if (!record.Completed)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    string GetObjectiveTextForZone(string zoneName)
-    {
-        foreach (ObjectiveRecord record in objectivesById.Values)
-        {
-            if (record.ZoneName == zoneName)
-            {
-                return record.Completed
-                    ? $"{record.Description} [Done]"
-                    : record.Description;
-            }
-        }
-
-        return string.Empty;
-    }
-
-    // --- Métodos públicos usados por UI e ecrã final ---
-
-    public int GetScore() => score;
-
-    public int GetTotalSupplies() => totalSupplyCaches;
-
-    public int GetCollectedSupplies() => suppliesFound;
+    public void Extract() { if (CanExtract()) TriggerVictory(); }
 
     public void TriggerVictory()
     {
-        if (UIManager.Instance != null)
-            UIManager.Instance.ShowMessage("EXTRACTION SUCCESSFUL! You win!");
-
-        if (GameOverScreen.Instance != null)
-            GameOverScreen.Instance.ShowVictory(score);
+        score += 250;
+        ChangeState(GameState.GameOver);
+        GameOverScreen.Instance?.ShowVictory(score);
     }
+
+    private void CheckExtractionUnlock()
+    {
+        if (AllObjectivesCompleted() || (objectivesById.Count == 0 && suppliesFound >= totalSupplyCaches))
+        {
+            extractionUnlocked = true;
+            UIManager.Instance?.ShowMessage("EXTRACTION READY");
+            UpdateObjectiveText();
+        }
+    }
+
+    private bool AllObjectivesCompleted()
+    {
+        if (objectivesById.Count == 0) return false;
+        foreach (var obj in objectivesById.Values) if (!obj.Completed) return false;
+        return true;
+    }
+
+    private void UpdateSuppliesText() => UIManager.Instance?.UpdateSupplies($"Supplies: {suppliesFound}/{totalSupplyCaches}");
+
+    private void UpdateObjectiveText()
+    {
+        string objective = $"Zone: {activeZone}\n";
+        if (extractionUnlocked) objective += "Return to extraction point";
+        else objective += GetObjectiveTextForZone(activeZone);
+        UIManager.Instance?.UpdateObjective(objective);
+    }
+
+    private string GetObjectiveTextForZone(string zoneName)
+    {
+        zoneName = NormalizeZoneName(zoneName, "Outskirts");
+        foreach (var record in objectivesById.Values)
+        {
+            if (record.ZoneName == zoneName)
+                return record.Completed ? $"{record.Description} [Done]" : record.Description;
+        }
+        int remaining = zoneZombieRemaining.ContainsKey(zoneName) ? zoneZombieRemaining[zoneName] : 0;
+        return remaining > 0 ? $"Clear infected: {remaining} remaining" : "Explore area";
+    }
+
+    private string NormalizeZoneName(string zoneName, string fallback) => string.IsNullOrWhiteSpace(zoneName) ? fallback : zoneName.Trim();
 }

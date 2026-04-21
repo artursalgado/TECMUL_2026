@@ -202,6 +202,8 @@ public class Shooting : MonoBehaviour
 
     public int GetMaxAmmo() => maxAmmo;
 
+    public int GetReserveAmmo() => inventory != null ? inventory.GetReserveAmmo() : 0;
+
     public bool IsReloading() => isReloading;
 
     void EnsureWeaponModel()
@@ -225,13 +227,13 @@ public class Shooting : MonoBehaviour
         root.transform.localScale = Vector3.one;
         weaponRoot = root.transform;
 
-        CreateWeaponPart("Body", weaponRoot, new Vector3(0f, -0.01f, 0f), new Vector3(0f, 0f, 0f), new Vector3(0.22f, 0.15f, 0.5f), new Color(0.1f, 0.11f, 0.13f));
-        CreateWeaponPart("Barrel", weaponRoot, new Vector3(0f, 0.02f, 0.33f), Vector3.zero, new Vector3(0.05f, 0.05f, 0.3f), new Color(0.2f, 0.2f, 0.22f));
-        CreateWeaponPart("Slide", weaponRoot, new Vector3(0f, 0.06f, 0.05f), Vector3.zero, new Vector3(0.18f, 0.07f, 0.32f), new Color(0.23f, 0.23f, 0.24f));
+        CreateWeaponPart("Body", weaponRoot, new Vector3(0f, -0.01f, 0f), new Vector3(0f, 0f, 0f), new Vector3(0.22f, 0.15f, 0.5f), new Color(0.1f, 0.11f, 0.13f), "MetalRustyTexture");
+        CreateWeaponPart("Barrel", weaponRoot, new Vector3(0f, 0.02f, 0.33f), Vector3.zero, new Vector3(0.05f, 0.05f, 0.3f), new Color(0.2f, 0.2f, 0.22f), "MetalRustyTexture");
+        CreateWeaponPart("Slide", weaponRoot, new Vector3(0f, 0.06f, 0.05f), Vector3.zero, new Vector3(0.18f, 0.07f, 0.32f), new Color(0.23f, 0.23f, 0.24f), "MetalRustyTexture");
         CreateWeaponPart("Grip", weaponRoot, new Vector3(0f, -0.16f, -0.08f), new Vector3(22f, 0f, 0f), new Vector3(0.1f, 0.22f, 0.1f), new Color(0.3f, 0.2f, 0.1f));
     }
 
-    void CreateWeaponPart(string name, Transform parent, Vector3 localPosition, Vector3 localEulerAngles, Vector3 localScale, Color color)
+    void CreateWeaponPart(string name, Transform parent, Vector3 localPosition, Vector3 localEulerAngles, Vector3 localScale, Color color, string textureName = "")
     {
         GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
         part.name = name;
@@ -243,7 +245,7 @@ public class Shooting : MonoBehaviour
         Renderer renderer = part.GetComponent<Renderer>();
         if (renderer != null)
         {
-            renderer.sharedMaterial = CreateMaterial(color);
+            renderer.sharedMaterial = CreateMaterial(color, textureName);
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
         }
@@ -255,7 +257,7 @@ public class Shooting : MonoBehaviour
         }
     }
 
-    Material CreateMaterial(Color color)
+    Material CreateMaterial(Color color, string textureName = "")
     {
         Shader shader = Shader.Find("Universal Render Pipeline/Lit");
         if (shader == null)
@@ -265,6 +267,15 @@ public class Shooting : MonoBehaviour
 
         Material material = new Material(shader);
         material.color = color;
+        if (!string.IsNullOrEmpty(textureName))
+        {
+            Texture2D tex = Resources.Load<Texture2D>("Textures/" + textureName);
+            if (tex != null)
+            {
+                material.SetTexture("_BaseMap", tex);
+                material.SetTexture("_MainTex", tex);
+            }
+        }
         return material;
     }
 
@@ -349,37 +360,56 @@ public class Shooting : MonoBehaviour
         }
 
         kickCoroutine = StartCoroutine(KickRoutine());
+        
+        // Add screen shake
+        if (UIManager.Instance != null)
+        {
+            // Assuming UIManager has a shake method or we can add one
+            // For now, let's just add a small camera bump here
+        }
     }
 
     IEnumerator KickRoutine()
     {
-        if (weaponRoot == null)
-        {
-            yield break;
-        }
+        if (weaponRoot == null || fpsCamera == null) yield break;
 
         Vector3 basePosition = new Vector3(0.33f, -0.28f, 0.52f);
         Quaternion baseRotation = Quaternion.Euler(6f, -18f, 0f);
-        Vector3 kickPosition = basePosition + new Vector3(-0.01f, 0.01f, -0.08f);
-        Quaternion kickRotation = Quaternion.Euler(0f, -18f, 0f);
+        
+        // More aggressive kick
+        Vector3 kickPosition = basePosition + new Vector3(Random.Range(-0.02f, 0.02f), 0.02f, -0.12f);
+        Quaternion kickRotation = Quaternion.Euler(Random.Range(-2f, -5f), -18f + Random.Range(-2f, 2f), Random.Range(-1f, 1f));
 
         float elapsed = 0f;
-        while (elapsed < 0.05f)
+        float duration = 0.04f; // Faster kick
+        
+        // Camera recoil bump
+        float camRecoilUp = 1.2f;
+        float camRecoilSide = Random.Range(-0.4f, 0.4f);
+
+        while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            float t = elapsed / 0.05f;
+            float t = elapsed / duration;
             weaponRoot.localPosition = Vector3.Lerp(basePosition, kickPosition, t);
             weaponRoot.localRotation = Quaternion.Slerp(baseRotation, kickRotation, t);
+            
+            // Camera kick
+            fpsCamera.transform.localRotation *= Quaternion.Euler(-camRecoilUp * Time.deltaTime / duration, camRecoilSide * Time.deltaTime / duration, 0f);
+            
             yield return null;
         }
 
         elapsed = 0f;
-        while (elapsed < 0.1f)
+        duration = 0.12f; // Slower return
+        while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            float t = elapsed / 0.1f;
-            weaponRoot.localPosition = Vector3.Lerp(kickPosition, basePosition, t);
-            weaponRoot.localRotation = Quaternion.Slerp(kickRotation, baseRotation, t);
+            float t = elapsed / duration;
+            // Smooth return using SmoothStep
+            float smoothT = t * t * (3f - 2f * t);
+            weaponRoot.localPosition = Vector3.Lerp(kickPosition, basePosition, smoothT);
+            weaponRoot.localRotation = Quaternion.Slerp(kickRotation, baseRotation, smoothT);
             yield return null;
         }
 
@@ -387,4 +417,5 @@ public class Shooting : MonoBehaviour
         weaponRoot.localRotation = baseRotation;
         kickCoroutine = null;
     }
+
 }

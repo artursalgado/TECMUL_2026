@@ -49,6 +49,7 @@ public class PlayerInventory : MonoBehaviour
 
     public bool TryAddResource(string resourceType, int amount, out string resultMessage, out bool rarePickup)
     {
+        resourceType = NormalizeResourceType(resourceType);
         rarePickup = resourceType == "Fuel" || resourceType == "Keys";
 
         if (amount <= 0)
@@ -128,6 +129,7 @@ public class PlayerInventory : MonoBehaviour
 
     public bool HasResource(string resourceType, int amount)
     {
+        resourceType = NormalizeResourceType(resourceType);
         return resourceType switch
         {
             "Ammo" => ammoReserve >= amount,
@@ -142,6 +144,7 @@ public class PlayerInventory : MonoBehaviour
 
     public void RemoveResource(string resourceType, int amount)
     {
+        resourceType = NormalizeResourceType(resourceType);
         switch (resourceType)
         {
             case "Ammo":
@@ -186,7 +189,28 @@ public class PlayerInventory : MonoBehaviour
 
     float GetWeightFor(string resourceType)
     {
+        resourceType = NormalizeResourceType(resourceType);
         return resourceWeights.TryGetValue(resourceType, out float value) ? value : 1f;
+    }
+
+    static string NormalizeResourceType(string resourceType)
+    {
+        if (string.IsNullOrWhiteSpace(resourceType))
+        {
+            return string.Empty;
+        }
+
+        string normalized = resourceType.Trim().ToLowerInvariant();
+        return normalized switch
+        {
+            "ammo" or "ammunition" or "municao" => "Ammo",
+            "meds" or "med" or "medkit" or "medkits" or "medicine" or "medical" => "Meds",
+            "food" or "comida" => "Food",
+            "scrap" or "supplies" or "supply" or "materials" => "Scrap",
+            "fuel" or "fuelcan" or "fuel canister" => "Fuel",
+            "key" or "keys" or "chave" or "chaves" => "Keys",
+            _ => resourceType.Trim()
+        };
     }
 
     void RefreshHUD()
@@ -197,7 +221,16 @@ public class PlayerInventory : MonoBehaviour
         }
 
         UIManager.Instance.UpdateMedkits(medkits);
-        UIManager.Instance.UpdateSupplies($"AMMO {ammoReserve}   FOOD {food}   {GetCurrentWeight():0.0}/{maxCarryWeight:0} KG");
         hudInitialized = true;
+    }
+
+    public float GetWeightPenaltyMultiplier()
+    {
+        float weight = GetCurrentWeight();
+        if (weight <= maxCarryWeight * 0.5f) return 1.0f;
+        
+        // Linear penalty from 50% capacity to 100% capacity
+        float ratio = (weight - maxCarryWeight * 0.5f) / (maxCarryWeight * 0.5f);
+        return Mathf.Lerp(1.0f, 0.65f, Mathf.Clamp01(ratio));
     }
 }

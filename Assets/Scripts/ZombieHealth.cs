@@ -24,7 +24,7 @@ public class ZombieHealth : MonoBehaviour
     [FormerlySerializedAs("somDano")]
     public AudioClip damageClip;
 
-    private int currentHealth;
+    public int currentHealth;
     private bool isDead = false;
     private AudioSource audioSource;
     private bool registered;
@@ -35,6 +35,7 @@ public class ZombieHealth : MonoBehaviour
 
     void Start()
     {
+        maxHealth = Mathf.RoundToInt(maxHealth * GameConfig.ZombieHealthMultiplier);
         currentHealth = maxHealth;
         audioSource = GetComponent<AudioSource>();
         ConfigureMainCollider();
@@ -186,7 +187,7 @@ public class ZombieHealth : MonoBehaviour
         Renderer renderer = existingPart.GetComponent<Renderer>();
         if (renderer != null)
         {
-            renderer.sharedMaterial = CreateMaterial(spec.Color);
+            renderer.sharedMaterial = CreateMaterial(spec.Color, partName.Contains("Leg") ? "" : "ZombieSkinTexture");
         }
     }
 
@@ -202,7 +203,7 @@ public class ZombieHealth : MonoBehaviour
         Renderer renderer = part.GetComponent<Renderer>();
         if (renderer != null)
         {
-            renderer.sharedMaterial = CreateMaterial(spec.Color);
+            renderer.sharedMaterial = CreateMaterial(spec.Color, partName.Contains("Leg") ? "" : "ZombieSkinTexture");
         }
 
         Collider collider = part.GetComponent<Collider>();
@@ -364,7 +365,7 @@ public class ZombieHealth : MonoBehaviour
         }
     }
 
-    Material CreateMaterial(Color color)
+    Material CreateMaterial(Color color, string textureName = "")
     {
         Shader shader = Shader.Find("Universal Render Pipeline/Lit");
         if (shader == null)
@@ -374,6 +375,15 @@ public class ZombieHealth : MonoBehaviour
 
         Material material = new Material(shader);
         material.color = color;
+        if (!string.IsNullOrEmpty(textureName))
+        {
+            Texture2D tex = Resources.Load<Texture2D>("Textures/" + textureName);
+            if (tex != null)
+            {
+                material.SetTexture("_BaseMap", tex);
+                material.SetTexture("_MainTex", tex);
+            }
+        }
         return material;
     }
 
