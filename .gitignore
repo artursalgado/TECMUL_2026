@@ -18,3 +18,13 @@ My project/UserSettings/
 *.hdr
 *.hdrz
 *.exr
+
+# Pastas pesadas de Assets ignoradas
+Assets/TerrainTexturesPackFree/
+Assets/Rocks and Vegetation Pack/
+Assets/naturekitOLD/
+Assets/abrigos_antigos/
+Assets/MesaM/
+Assets/Old building/
+Assets/lixometal/
+Assets/poplartreee/
