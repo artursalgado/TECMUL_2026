@@ -168,11 +168,17 @@ public class PlayerMovement : MonoBehaviour
             return false;
         }
 
+        if (hitCollider is TerrainCollider)
+        {
+            return true;
+        }
+
         string surfaceName = hitCollider.gameObject.name;
         return surfaceName == "Ground"
             || surfaceName == "Outer Terrain"
             || surfaceName == "Main Street"
-            || surfaceName == "Cross Road";
+            || surfaceName == "Cross Road"
+            || surfaceName == "Terrain";
     }
 
     public bool IsCrouching() => isCrouching;
