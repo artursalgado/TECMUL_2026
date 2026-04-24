@@ -87,6 +87,15 @@ public class HUDManager : MonoBehaviour
             "❤  100", new Vector2(-750, -440), new Vector2(320, 35),
             26, new Color(1f, 0.7f, 0.7f), FontStyles.Bold);
 
+        // ── ARMA ATUAL ────────────────────────────────────────────
+        textoArma = CriarTexto(canvasGO.transform, "TextoArma",
+            "🪓 MACHADO", new Vector2(820, -440), new Vector2(350, 40),
+            28, new Color(1f, 0.85f, 0.4f), FontStyles.Bold);
+
+        textoMunicao = CriarTexto(canvasGO.transform, "TextoMunicao",
+            "", new Vector2(820, -475), new Vector2(350, 35),
+            24, new Color(0.8f, 0.8f, 0.8f), FontStyles.Normal);
+
         // ── ECRÃ DE MORTE ─────────────────────────────────────────
         painelMorte = CriarPainelFullscreen(canvasGO.transform, "PainelMorte",
             new Color(0.05f, 0f, 0f, 0.92f));
