@@ -10,25 +10,23 @@ public class WaveManager : MonoBehaviour
 
     [Header("Configuração das Hordas")]
     public int totalHordas = 5;
-    public float intervaloBetweenHordas = 60f; // 1 minuto entre hordas
+    public float duracaoDeHorda = 60f; // 1 minuto por horda
 
-    [Header("Zombies por Horda (começa na Horda 1)")]
+    [Header("Zombies por Horda")]
     public int[] zombiesPorHorda = { 5, 10, 15, 20, 30 };
 
     [Header("Raio de Spawn")]
     public float raioMinimo = 20f;
     public float raioMaximo = 40f;
 
-    // Estado atual
     [HideInInspector] public int hordaAtual = 0;
     [HideInInspector] public int zombiesRestantes = 0;
     [HideInInspector] public bool jogoTerminado = false;
-    [HideInInspector] public float tempoParaProximaHorda = 0f;
-    [HideInInspector] public bool aEsperarProximaHorda = false;
 
     private Transform jogador;
-    private List<GameObject> zombiesAtivos = new List<GameObject>();
     private HUDManager hud;
+    private float timerHorda;
+    private bool hordaAtiva = false;
 
     void Start()
     {
@@ -38,37 +36,52 @@ public class WaveManager : MonoBehaviour
         if (playerObj != null)
             jogador = playerObj.transform;
         else
-            Debug.LogError("WaveManager: Jogador não encontrado! Coloque a Tag 'Player' no Player.");
+            Debug.LogError("WaveManager: Player não encontrado! Coloque a Tag 'Player' no Player.");
 
         // Começa a primeira horda após 3 segundos
-        StartCoroutine(IniciarHordaComDelay(3f));
+        Invoke(nameof(IniciarProximaHorda), 3f);
     }
 
-    IEnumerator IniciarHordaComDelay(float delay)
+    void Update()
     {
-        yield return new WaitForSeconds(delay);
-        IniciarProximaHorda();
+        if (!hordaAtiva || jogoTerminado) return;
+
+        timerHorda -= Time.deltaTime;
+
+        // Atualiza a contagem regressiva no HUD
+        if (hud != null)
+            hud.MostrarTempoHorda((int)timerHorda);
+
+        // Quando o tempo acabar, avança para a próxima horda
+        if (timerHorda <= 0f)
+        {
+            hordaAtiva = false;
+
+            if (hordaAtual >= totalHordas)
+            {
+                jogoTerminado = true;
+                if (hud != null) hud.MostrarVitoria();
+            }
+            else
+            {
+                // Próxima horda começa logo após 3 segundos
+                Invoke(nameof(IniciarProximaHorda), 3f);
+            }
+        }
     }
 
     void IniciarProximaHorda()
     {
-        if (hordaAtual >= totalHordas)
-        {
-            // Jogo ganho!
-            jogoTerminado = true;
-            if (hud != null) hud.MostrarVitoria();
-            return;
-        }
-
         hordaAtual++;
-        aEsperarProximaHorda = false;
-        int quantidadeDeZombies = zombiesPorHorda[hordaAtual - 1];
-        zombiesRestantes = quantidadeDeZombies;
+        int quantidade = zombiesPorHorda[hordaAtual - 1];
+        zombiesRestantes = quantidade;
+        timerHorda = duracaoDeHorda;
+        hordaAtiva = true;
 
         if (hud != null) hud.AtualizarHorda(hordaAtual, totalHordas, zombiesRestantes);
 
-        StartCoroutine(FazerSpawnDaHorda(quantidadeDeZombies));
-        Debug.Log($"[WaveManager] Horda {hordaAtual} iniciada com {quantidadeDeZombies} zombies!");
+        StartCoroutine(FazerSpawnDaHorda(quantidade));
+        Debug.Log($"[WaveManager] Horda {hordaAtual} iniciada com {quantidade} zombies!");
     }
 
     IEnumerator FazerSpawnDaHorda(int quantidade)
@@ -76,7 +89,7 @@ public class WaveManager : MonoBehaviour
         for (int i = 0; i < quantidade; i++)
         {
             SpawnZombie();
-            yield return new WaitForSeconds(0.5f); // Meio segundo entre cada zombie
+            yield return new WaitForSeconds(0.5f);
         }
     }
 
@@ -84,7 +97,6 @@ public class WaveManager : MonoBehaviour
     {
         if (jogador == null || zombiePrefab == null) return;
 
-        // Gera posição aleatória à volta do jogador
         for (int tentativas = 0; tentativas < 10; tentativas++)
         {
             Vector2 circulo = Random.insideUnitCircle.normalized;
@@ -95,9 +107,7 @@ public class WaveManager : MonoBehaviour
             if (NavMesh.SamplePosition(posAleatoria, out hit, 5f, NavMesh.AllAreas))
             {
                 GameObject novoZombie = Instantiate(zombiePrefab, hit.position, Quaternion.identity);
-                zombiesAtivos.Add(novoZombie);
 
-                // Diz ao zombie para avisar quando morrer
                 ZombieAI ai = novoZombie.GetComponent<ZombieAI>();
                 if (ai != null) ai.waveManager = this;
 
@@ -106,42 +116,11 @@ public class WaveManager : MonoBehaviour
         }
     }
 
-    // Chamado pelo ZombieAI quando ele morre
+    // Chamado pelo ZombieAI quando morre — para atualizar o contador no HUD
     public void ZombieMorreu()
     {
-        zombiesRestantes--;
-        zombiesAtivos.RemoveAll(z => z == null);
-
+        zombiesRestantes = Mathf.Max(0, zombiesRestantes - 1);
         if (hud != null) hud.AtualizarZombiesRestantes(zombiesRestantes);
-
-        if (zombiesRestantes <= 0 && !jogoTerminado)
-        {
-            // Todos os zombies morreram!
-            if (hordaAtual >= totalHordas)
-            {
-                jogoTerminado = true;
-                if (hud != null) hud.MostrarVitoria();
-            }
-            else
-            {
-                // Prepara próxima horda
-                StartCoroutine(ContagemdRegressiva());
-            }
-        }
-    }
-
-    IEnumerator ContagemdRegressiva()
-    {
-        aEsperarProximaHorda = true;
-        tempoParaProximaHorda = intervaloBetweenHordas;
-
-        while (tempoParaProximaHorda > 0)
-        {
-            if (hud != null) hud.MostrarContagemRegressiva((int)tempoParaProximaHorda);
-            yield return new WaitForSeconds(1f);
-            tempoParaProximaHorda -= 1f;
-        }
-
-        IniciarProximaHorda();
     }
 }
+

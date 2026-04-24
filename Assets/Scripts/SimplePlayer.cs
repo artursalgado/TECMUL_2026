@@ -34,9 +34,12 @@ public class SimplePlayer : MonoBehaviour
             Debug.LogError("SimplePlayer: Nenhuma câmara encontrada dentro do Player!");
         }
 
-        // Esconde e prende o rato no centro do ecrã
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        // Esconde e prende o rato no centro do ecrã (apenas durante o jogo)
+        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name != "MainMenu")
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
         
         Debug.Log("SimplePlayer: Script Iniciado. Pronto para andar!");
     }
