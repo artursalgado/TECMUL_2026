@@ -33,11 +33,6 @@ public class GameOverScreen : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void EnsureRuntimeGameOverScreen()
     {
-        // SceneBootstrapper desativado — mapa feito manualmente
-        if (false)
-        {
-            return;
-        }
 
         if (FindFirstObjectByType<GameOverScreen>() != null)
         {
@@ -54,7 +49,7 @@ public class GameOverScreen : MonoBehaviour
         {
             if (Instance.gameObject.activeInHierarchy)
             {
-                Destroy(gameObject);
+                DestroySafe(gameObject);
                 return;
             }
 
@@ -87,7 +82,12 @@ public class GameOverScreen : MonoBehaviour
 
         if (titleText != null) titleText.text = "GAME OVER";
         if (finalScoreText != null) finalScoreText.text = "Score: " + score;
-        if (reasonText != null) reasonText.text = reason;
+        if (reasonText != null)
+        {
+            int bestWave = PlayerPrefs.GetInt("Run_BestWave", 0);
+            int bestScore = PlayerPrefs.GetInt("Run_BestScore", 0);
+            reasonText.text = $"{reason}\nBest Wave: {bestWave}  Best Score: {bestScore}";
+        }
 
         BindButtons(restartButton, quitButton);
 
@@ -116,7 +116,10 @@ public class GameOverScreen : MonoBehaviour
         if (victoryScoreText != null)
             victoryScoreText.text = "Score: " + score;
         if (victoryTimeText != null)
-            victoryTimeText.text = $"Time: {minutes:00}:{seconds:00}";
+        {
+            int bestWave = PlayerPrefs.GetInt("Run_BestWave", 0);
+            victoryTimeText.text = $"Time: {minutes:00}:{seconds:00}\nBest Wave: {bestWave}";
+        }
 
         BindButtons(victoryRestartButton, victoryQuitButton);
 
@@ -353,7 +356,7 @@ public class GameOverScreen : MonoBehaviour
     {
         if (runtimeCanvasRoot != null)
         {
-            Destroy(runtimeCanvasRoot);
+            DestroySafe(runtimeCanvasRoot);
         }
 
         if (Instance == this)
@@ -367,6 +370,23 @@ public class GameOverScreen : MonoBehaviour
         if (Instance == this)
         {
             Instance = null;
+        }
+    }
+
+    static void DestroySafe(Object obj)
+    {
+        if (obj == null)
+        {
+            return;
+        }
+
+        if (Application.isPlaying)
+        {
+            Destroy(obj);
+        }
+        else
+        {
+            DestroyImmediate(obj);
         }
     }
 }

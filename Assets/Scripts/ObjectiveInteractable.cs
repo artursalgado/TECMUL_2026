@@ -17,6 +17,7 @@ public class ObjectiveInteractable : MonoBehaviour, IInteractable
     void Start()
     {
         cachedRenderer = GetComponent<Renderer>();
+        RegisterObjectiveIfNeeded();
     }
 
     public string GetPrompt(PlayerInteractor interactor)
@@ -56,18 +57,24 @@ public class ObjectiveInteractable : MonoBehaviour, IInteractable
             }
         }
 
-        completed = true;
-        GameManager.Instance?.CompleteObjective(zoneName, objectiveId);
+        completed = oneShot;
+        GameManager.Instance?.CompleteObjective(objectiveId);
         UIManager.Instance?.ShowMessage(completionMessage);
 
         if (cachedRenderer != null)
         {
-            cachedRenderer.sharedMaterial.color = new Color(0.25f, 0.5f, 0.3f);
+            cachedRenderer.material.color = new Color(0.25f, 0.5f, 0.3f);
+        }
+    }
+
+    void RegisterObjectiveIfNeeded()
+    {
+        if (string.IsNullOrWhiteSpace(objectiveId))
+        {
+            return;
         }
 
-        if (!oneShot)
-        {
-            completed = false;
-        }
+        string description = !string.IsNullOrWhiteSpace(prompt) ? prompt : completionMessage;
+        GameManager.Instance?.RegisterObjective(objectiveId, zoneName, description);
     }
 }

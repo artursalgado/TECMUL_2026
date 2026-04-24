@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 
 public class ZombieHealth : MonoBehaviour
 {
@@ -24,7 +27,7 @@ public class ZombieHealth : MonoBehaviour
     [FormerlySerializedAs("somDano")]
     public AudioClip damageClip;
 
-    private int currentHealth;
+    public int currentHealth;
     private bool isDead = false;
     private AudioSource audioSource;
     private bool registered;
@@ -35,10 +38,29 @@ public class ZombieHealth : MonoBehaviour
 
     void Start()
     {
+        maxHealth = Mathf.RoundToInt(maxHealth * GameConfig.ZombieHealthMultiplier);
         currentHealth = maxHealth;
         audioSource = GetComponent<AudioSource>();
         ConfigureMainCollider();
-        EnsureHumanoidVisual();
+
+        // PATCH: nunca criar primitivos se existir SkinnedMeshRenderer no prefab.
+        // Só configura hit zones no visual importado.
+        SkinnedMeshRenderer smr = GetComponentInChildren<SkinnedMeshRenderer>(true);
+        if (smr != null)
+        {
+            EnsureBodyHitZone();
+            EnsureHeadHitZoneOnImportedRig();
+        }
+        else
+        {
+            // Prefab não tem skin — loga erro e NÃO cria primitivos.
+            Debug.LogError(
+                $"[ZombieHealth] '{gameObject.name}': SkinnedMeshRenderer não encontrado. " +
+                "Verifica que o zombiePrefab aponta para ZombieMale_AAB_URP.prefab. " +
+                "Primitivos visuais foram DESATIVADOS neste build.", gameObject);
+        }
+
+        EnsureShadowDisc();
         EnsureHealthBar();
         RefreshHealthBar();
         RegisterWithGameManager();
@@ -46,48 +68,30 @@ public class ZombieHealth : MonoBehaviour
 
     void LateUpdate()
     {
-        if (healthBarRoot == null)
-        {
-            return;
-        }
+        if (healthBarRoot == null) return;
 
-        if (cachedCamera == null)
-        {
-            cachedCamera = Camera.main;
-        }
+        if (cachedCamera == null) cachedCamera = Camera.main;
 
         if (cachedCamera != null)
         {
             healthBarRoot.forward = cachedCamera.transform.forward;
             if (!isDead)
-            {
                 healthBarRoot.gameObject.SetActive(currentHealth < maxHealth && Time.time <= healthBarVisibleUntil);
-            }
         }
     }
 
     void RegisterWithGameManager()
     {
-        if (registered || !gameObject.activeInHierarchy || GameManager.Instance == null)
-        {
-            return;
-        }
-
+        if (registered || !gameObject.activeInHierarchy || GameManager.Instance == null) return;
         registered = true;
         GameManager.Instance.RegisterZombie(zoneName);
     }
 
-    public void TakeDamage(int damage)
-    {
-        ApplyHit(damage, false);
-    }
+    public void TakeDamage(int damage) => ApplyHit(damage, false);
 
     public void ApplyHit(int damage, bool isHeadshot)
     {
-        if (isDead)
-        {
-            return;
-        }
+        if (isDead) return;
 
         currentHealth -= damage;
         currentHealth = Mathf.Clamp(currentHealth, 0, maxHealth);
@@ -95,23 +99,14 @@ public class ZombieHealth : MonoBehaviour
         RefreshHealthBar();
 
         if (audioSource != null && damageClip != null)
-        {
             audioSource.PlayOneShot(damageClip);
-        }
 
         if (isHeadshot)
-        {
             UIManager.Instance?.ShowMessage("Headshot");
-        }
         else
-        {
             GetComponent<ZombieAI>()?.ApplyStun(0.12f);
-        }
 
-        if (currentHealth <= 0)
-        {
-            Die();
-        }
+        if (currentHealth <= 0) Die();
     }
 
     void Die()
@@ -122,154 +117,95 @@ public class ZombieHealth : MonoBehaviour
         GameManager.Instance?.OnZombieKilled(zoneName);
 
         if (audioSource != null && deathClip != null)
-        {
             audioSource.PlayOneShot(deathClip);
-        }
 
         if (deathEffect != null)
-        {
             Instantiate(deathEffect, transform.position, Quaternion.identity);
-        }
 
         Animator animator = GetComponent<Animator>();
-        if (animator != null)
-        {
-            animator.SetTrigger("Morrer");
-        }
+        if (animator != null) animator.SetTrigger("Morrer");
 
-        if (healthBarRoot != null)
-        {
-            healthBarRoot.gameObject.SetActive(false);
-        }
+        if (healthBarRoot != null) healthBarRoot.gameObject.SetActive(false);
 
         Destroy(gameObject, 1.2f);
     }
 
     public bool IsDead() => isDead;
-
     public int GetCurrentHealth() => currentHealth;
-
     public int GetMaxHealth() => maxHealth;
 
-    void EnsureHumanoidVisual()
+
+    void EnsureHeadHitZoneOnImportedRig()
     {
-        Renderer rootRenderer = GetComponent<Renderer>();
-        if (rootRenderer != null)
-        {
-            rootRenderer.enabled = false;
-        }
+        Transform rigRoot = GetComponentInChildren<Animator>(true)?.transform;
+        Transform headBone = FindBoneByName(rigRoot, "head")
+            ?? FindBoneByName(transform, "head")
+            ?? FindBoneByName(transform, "Head_01")
+            ?? FindBoneByName(transform, "Head");
 
-        EnsurePart("Body", new PrimitiveSpec(PrimitiveType.Cube, new Vector3(0f, 0.95f, 0f), new Vector3(5f, 0f, 0f), new Vector3(0.7f, 0.92f, 0.34f), new Color(0.22f, 0.34f, 0.28f)));
-        EnsurePart("Head", new PrimitiveSpec(PrimitiveType.Sphere, new Vector3(0f, 1.6f, 0.03f), Vector3.zero, new Vector3(0.34f, 0.38f, 0.34f), new Color(0.54f, 0.72f, 0.46f)));
-        EnsurePart("Left Arm", new PrimitiveSpec(PrimitiveType.Cube, new Vector3(-0.42f, 0.98f, 0.02f), new Vector3(0f, 0f, 16f), new Vector3(0.12f, 0.58f, 0.12f), new Color(0.2f, 0.3f, 0.24f)));
-        EnsurePart("Right Arm", new PrimitiveSpec(PrimitiveType.Cube, new Vector3(0.42f, 0.98f, 0.02f), new Vector3(0f, 0f, -16f), new Vector3(0.12f, 0.58f, 0.12f), new Color(0.2f, 0.3f, 0.24f)));
-        EnsurePart("Left Leg", new PrimitiveSpec(PrimitiveType.Cube, new Vector3(-0.15f, 0.34f, 0f), new Vector3(2f, 0f, 0f), new Vector3(0.14f, 0.66f, 0.14f), new Color(0.09f, 0.11f, 0.12f)));
-        EnsurePart("Right Leg", new PrimitiveSpec(PrimitiveType.Cube, new Vector3(0.15f, 0.34f, 0f), new Vector3(-2f, 0f, 0f), new Vector3(0.14f, 0.66f, 0.14f), new Color(0.09f, 0.11f, 0.12f)));
-        EnsureShadowDisc();
-        EnsureHeadHitZone();
-        EnsureBodyHitZone();
-    }
-
-    void EnsurePart(string partName, PrimitiveSpec spec)
-    {
-        Transform existingPart = transform.Find(partName);
-        if (existingPart == null)
-        {
-            CreatePart(partName, spec);
-            existingPart = transform.Find(partName);
-        }
-
-        existingPart.localPosition = spec.LocalPosition;
-        existingPart.localEulerAngles = spec.LocalEulerAngles;
-        existingPart.localScale = spec.LocalScale;
-
-        Renderer renderer = existingPart.GetComponent<Renderer>();
-        if (renderer != null)
-        {
-            renderer.sharedMaterial = CreateMaterial(spec.Color);
-        }
-    }
-
-    void CreatePart(string partName, PrimitiveSpec spec)
-    {
-        GameObject part = GameObject.CreatePrimitive(spec.Type);
-        part.name = partName;
-        part.transform.SetParent(transform, false);
-        part.transform.localPosition = spec.LocalPosition;
-        part.transform.localEulerAngles = spec.LocalEulerAngles;
-        part.transform.localScale = spec.LocalScale;
-
-        Renderer renderer = part.GetComponent<Renderer>();
-        if (renderer != null)
-        {
-            renderer.sharedMaterial = CreateMaterial(spec.Color);
-        }
-
-        Collider collider = part.GetComponent<Collider>();
-        if (collider != null)
-        {
-            Destroy(collider);
-        }
-    }
-
-    void EnsureHeadHitZone()
-    {
         Transform hitbox = transform.Find("Head Hitbox");
         if (hitbox == null)
         {
-            GameObject hitboxObject = new GameObject("Head Hitbox");
-            hitboxObject.transform.SetParent(transform, false);
-            hitbox = hitboxObject.transform;
+            GameObject go = new GameObject("Head Hitbox");
+            go.transform.SetParent(transform, false);
+            hitbox = go.transform;
         }
 
-        hitbox.localPosition = new Vector3(0f, 1.62f, 0.06f);
-        hitbox.localRotation = Quaternion.identity;
+        if (headBone != null)
+        {
+            hitbox.position = headBone.position + headBone.up * 0.08f;
+            hitbox.rotation = Quaternion.identity;
+            hitbox.SetParent(transform, true);
+        }
+        else
+        {
+            hitbox.localPosition = new Vector3(0f, 1.62f, 0.06f);
+            hitbox.localRotation = Quaternion.identity;
+            Debug.LogWarning($"[ZombieHealth] '{gameObject.name}': headBone não encontrado no rig. Head hitbox posicionado manualmente.", gameObject);
+        }
 
         SphereCollider sphere = hitbox.GetComponent<SphereCollider>();
-        if (sphere == null)
-        {
-            sphere = hitbox.gameObject.AddComponent<SphereCollider>();
-        }
-
-        sphere.radius = 0.24f;
+        if (sphere == null) sphere = hitbox.gameObject.AddComponent<SphereCollider>();
+        sphere.radius = 0.2f;
         sphere.center = Vector3.zero;
 
-        ZombieHitZone hitZone = hitbox.GetComponent<ZombieHitZone>();
-        if (hitZone == null)
-        {
-            hitZone = hitbox.gameObject.AddComponent<ZombieHitZone>();
-        }
+        ZombieHitZone zone = hitbox.GetComponent<ZombieHitZone>();
+        if (zone == null) zone = hitbox.gameObject.AddComponent<ZombieHitZone>();
+        zone.zombieHealth = this;
+        zone.instantKill = true;
+        zone.damageMultiplier = 2.2f;
+    }
 
-        hitZone.zombieHealth = this;
-        hitZone.instantKill = true;
-        hitZone.damageMultiplier = 2.5f;
+    Transform FindBoneByName(Transform root, string boneName)
+    {
+        if (root == null || string.IsNullOrEmpty(boneName)) return null;
+        if (string.Equals(root.name, boneName, System.StringComparison.OrdinalIgnoreCase)) return root;
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindBoneByName(root.GetChild(i), boneName);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     void EnsureBodyHitZone()
     {
-        ZombieHitZone hitZone = GetComponent<ZombieHitZone>();
-        if (hitZone == null)
-        {
-            hitZone = gameObject.AddComponent<ZombieHitZone>();
-        }
-
-        hitZone.zombieHealth = this;
-        hitZone.instantKill = false;
-        hitZone.damageMultiplier = 1f;
+        ZombieHitZone zone = GetComponent<ZombieHitZone>();
+        if (zone == null) zone = gameObject.AddComponent<ZombieHitZone>();
+        zone.zombieHealth = this;
+        zone.instantKill = false;
+        zone.damageMultiplier = 1f;
     }
 
     void ConfigureMainCollider()
     {
-        CapsuleCollider mainCollider = GetComponent<CapsuleCollider>();
-        if (mainCollider == null)
-        {
-            return;
-        }
-
-        mainCollider.height = 1.28f;
-        mainCollider.radius = 0.3f;
-        mainCollider.center = new Vector3(0f, 0.68f, 0f);
+        CapsuleCollider col = GetComponent<CapsuleCollider>();
+        if (col == null) return;
+        col.height = 1.28f;
+        col.radius = 0.3f;
+        col.center = new Vector3(0f, 0.68f, 0f);
     }
+
 
     void EnsureHealthBar()
     {
@@ -278,10 +214,7 @@ public class ZombieHealth : MonoBehaviour
         {
             healthBarRoot = existing;
             Transform fill = existing.Find("Canvas/Background/Fill");
-            if (fill != null)
-            {
-                healthBarFill = fill.GetComponent<Image>();
-            }
+            if (fill != null) healthBarFill = fill.GetComponent<Image>();
             return;
         }
 
@@ -290,34 +223,29 @@ public class ZombieHealth : MonoBehaviour
         root.transform.localPosition = new Vector3(0f, 2.15f, 0f);
         healthBarRoot = root.transform;
 
-        GameObject canvasObject = new GameObject("Canvas");
-        canvasObject.transform.SetParent(root.transform, false);
-        Canvas canvas = canvasObject.AddComponent<Canvas>();
+        GameObject canvasGO = new GameObject("Canvas");
+        canvasGO.transform.SetParent(root.transform, false);
+        Canvas canvas = canvasGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.worldCamera = Camera.main;
         canvas.sortingOrder = 10;
-
-        RectTransform canvasRect = canvasObject.GetComponent<RectTransform>();
+        RectTransform canvasRect = canvasGO.GetComponent<RectTransform>();
         canvasRect.sizeDelta = new Vector2(64f, 12f);
         canvasRect.localScale = Vector3.one * 0.01f;
 
-        GameObject backgroundObject = new GameObject("Background");
-        backgroundObject.transform.SetParent(canvasObject.transform, false);
-        Image background = backgroundObject.AddComponent<Image>();
-        background.color = new Color(0.08f, 0.08f, 0.08f, 0.92f);
+        GameObject bgGO = new GameObject("Background");
+        bgGO.transform.SetParent(canvasGO.transform, false);
+        Image bg = bgGO.AddComponent<Image>();
+        bg.color = new Color(0.08f, 0.08f, 0.08f, 0.92f);
+        RectTransform bgRect = bgGO.GetComponent<RectTransform>();
+        bgRect.anchorMin = bgRect.anchorMax = bgRect.pivot = new Vector2(0.5f, 0.5f);
+        bgRect.sizeDelta = new Vector2(60f, 8f);
 
-        RectTransform backgroundRect = backgroundObject.GetComponent<RectTransform>();
-        backgroundRect.anchorMin = new Vector2(0.5f, 0.5f);
-        backgroundRect.anchorMax = new Vector2(0.5f, 0.5f);
-        backgroundRect.pivot = new Vector2(0.5f, 0.5f);
-        backgroundRect.sizeDelta = new Vector2(60f, 8f);
-
-        GameObject fillObject = new GameObject("Fill");
-        fillObject.transform.SetParent(backgroundObject.transform, false);
-        healthBarFill = fillObject.AddComponent<Image>();
+        GameObject fillGO = new GameObject("Fill");
+        fillGO.transform.SetParent(bgGO.transform, false);
+        healthBarFill = fillGO.AddComponent<Image>();
         healthBarFill.color = new Color(0.75f, 0.16f, 0.18f, 1f);
-
-        RectTransform fillRect = fillObject.GetComponent<RectTransform>();
+        RectTransform fillRect = fillGO.GetComponent<RectTransform>();
         fillRect.anchorMin = new Vector2(0f, 0f);
         fillRect.anchorMax = new Vector2(0f, 1f);
         fillRect.pivot = new Vector2(0f, 0.5f);
@@ -327,23 +255,15 @@ public class ZombieHealth : MonoBehaviour
 
     void RefreshHealthBar()
     {
-        if (healthBarFill == null)
-        {
-            return;
-        }
-
+        if (healthBarFill == null) return;
         float ratio = maxHealth > 0 ? (float)currentHealth / maxHealth : 0f;
-        RectTransform fillRect = healthBarFill.rectTransform;
-        fillRect.sizeDelta = new Vector2(58f * Mathf.Clamp01(ratio), -2f);
+        healthBarFill.rectTransform.sizeDelta = new Vector2(58f * Mathf.Clamp01(ratio), -2f);
         healthBarRoot.gameObject.SetActive(!isDead && currentHealth < maxHealth && Time.time <= healthBarVisibleUntil);
     }
 
     void EnsureShadowDisc()
     {
-        if (transform.Find("Ground Shadow") != null)
-        {
-            return;
-        }
+        if (transform.Find("Ground Shadow") != null) return;
 
         GameObject shadow = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
         shadow.name = "Ground Shadow";
@@ -351,47 +271,16 @@ public class ZombieHealth : MonoBehaviour
         shadow.transform.localPosition = new Vector3(0f, 0.03f, 0f);
         shadow.transform.localScale = new Vector3(0.55f, 0.01f, 0.55f);
 
-        Renderer renderer = shadow.GetComponent<Renderer>();
-        if (renderer != null)
+        Renderer r = shadow.GetComponent<Renderer>();
+        if (r != null)
         {
-            renderer.sharedMaterial = CreateMaterial(new Color(0f, 0f, 0f, 0.4f));
+            Shader sh = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+            Material mat = new Material(sh);
+            mat.color = new Color(0f, 0f, 0f, 0.4f);
+            r.sharedMaterial = mat;
         }
 
-        Collider collider = shadow.GetComponent<Collider>();
-        if (collider != null)
-        {
-            Destroy(collider);
-        }
-    }
-
-    Material CreateMaterial(Color color)
-    {
-        Shader shader = Shader.Find("Universal Render Pipeline/Lit");
-        if (shader == null)
-        {
-            shader = Shader.Find("Standard");
-        }
-
-        Material material = new Material(shader);
-        material.color = color;
-        return material;
-    }
-
-    readonly struct PrimitiveSpec
-    {
-        public PrimitiveType Type { get; }
-        public Vector3 LocalPosition { get; }
-        public Vector3 LocalEulerAngles { get; }
-        public Vector3 LocalScale { get; }
-        public Color Color { get; }
-
-        public PrimitiveSpec(PrimitiveType type, Vector3 localPosition, Vector3 localEulerAngles, Vector3 localScale, Color color)
-        {
-            Type = type;
-            LocalPosition = localPosition;
-            LocalEulerAngles = localEulerAngles;
-            LocalScale = localScale;
-            Color = color;
-        }
+        Collider col = shadow.GetComponent<Collider>();
+        if (col != null) Destroy(col);
     }
 }

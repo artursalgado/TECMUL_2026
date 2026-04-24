@@ -9,7 +9,6 @@ public class UIManager : MonoBehaviour
     public static UIManager Instance;
     public Shooting shooting;
 
-    // HUD refs — built at runtime
     private TextMeshProUGUI _zoneText;
     private TextMeshProUGUI _objectiveText;
     private TextMeshProUGUI _scoreText;
@@ -27,12 +26,13 @@ public class UIManager : MonoBehaviour
     private TextMeshProUGUI _messageText;
     private Image            _damageVignette;
     private GameObject       _hudCanvasRoot;
+    private Vector3          _hudBasePos = Vector3.zero;
+    private float            _shakeIntensity = 0f;
 
-    private int _maxHealth = 100;
     private const int MedkitMax = 4;
 
-    static readonly Color CPanelBg     = new Color(0f,    0f,    0f,    0.55f);
-    static readonly Color CHealthGreen = new Color(0.298f,0.686f,0.314f,1f);
+    static readonly Color CPanelBg     = new Color(0.05f, 0.07f, 0.1f, 0.75f);
+    static readonly Color CHealthGreen = new Color(0.35f, 1f, 0.6f, 1f);
     static readonly Color CMuted       = new Color(1f,    1f,    1f,    0.45f);
     static readonly Color CVeryMuted   = new Color(1f,    1f,    1f,    0.3f);
     static readonly Color CSupplies    = new Color(1f,    1f,    1f,    0.55f);
@@ -40,97 +40,125 @@ public class UIManager : MonoBehaviour
     static readonly Color CWaveText    = new Color(0.973f,0.533f,0.533f,1f);
     static readonly Color CMedEmpty    = new Color(1f,    1f,    1f,    0.12f);
     static readonly Color CAmberText   = new Color(0.98f, 0.62f, 0.09f, 1f);
+    static readonly Color CAccent      = new Color(0.93f, 0.27f, 0.27f, 1f);
+    static readonly Vector2 MC         = new Vector2(0.5f, 0.5f);
+    static readonly Vector2 TL = new Vector2(0,1);
+    static readonly Vector2 TR = new Vector2(1,1);
+    static readonly Vector2 BL = new Vector2(0,0);
+    static readonly Vector2 BR = new Vector2(1,0);
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void EnsureRuntimeUIManager()
     {
-        // SceneBootstrapper desativado — mapa feito manualmente
-        if (false)
-        {
-            return;
-        }
-
-        if (FindFirstObjectByType<UIManager>() != null)
-        {
-            return;
-        }
-
-        GameObject uiManagerObject = new GameObject("UIManager");
-        uiManagerObject.AddComponent<UIManager>();
+        string scene = SceneManager.GetActiveScene().name;
+        // Nao cria UIManager em cenas de menu
+        if (GameConfig.IsMenuScene(scene)) return;
+        if (FindFirstObjectByType<UIManager>() != null) return;
+        new GameObject("UIManager").AddComponent<UIManager>();
     }
 
     void Awake()
     {
-        if (Instance != null && Instance != this)
-        {
-            if (Instance.gameObject.activeInHierarchy)
-            {
-                Destroy(gameObject);
-                return;
-            }
-
-            Instance = null;
-        }
-
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
-
-        RemoveLegacyHudChildren();
+        DontDestroyOnLoad(gameObject);
         BuildHUD();
-        EnsureCrosshairPresent();
+    }
+
+    void OnEnable()
+    {
+        SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnDisable()
+    {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+    }
+
+    void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        // Destroi se voltar ao menu principal
+        if (GameConfig.IsMenuScene(scene.name))
+        {
+            Instance = null;
+            Destroy(gameObject);
+        }
+        else
+        {
+            // Reconstroi o HUD ao carregar nova cena de jogo
+            BuildHUD();
+        }
     }
 
     void Start()
     {
-        EnsureRuntimeHud();
         UpdatePrompt(string.Empty);
         UpdateHealth(100, 100);
     }
 
     void Update()
     {
-        if (shooting == null)
-            shooting = FindFirstObjectByType<Shooting>();
-
+        if (shooting == null) shooting = Object.FindFirstObjectByType<Shooting>();
         if (shooting == null) return;
 
-        string ammoStatus = shooting.IsReloading()
-            ? "RELOADING"
-            : shooting.GetCurrentAmmo().ToString();
+        if (_shakeIntensity > 0f)
+        {
+            _shakeIntensity -= Time.deltaTime * 5f;
+            if (_hudCanvasRoot != null)
+                _hudCanvasRoot.transform.position = _hudBasePos + (Vector3)(Random.insideUnitCircle * _shakeIntensity * 20f);
+        }
+        else if (_hudCanvasRoot != null)
+        {
+            _hudCanvasRoot.transform.position = _hudBasePos;
+        }
 
-        if (_ammoCurrentText != null)
-            _ammoCurrentText.text = ammoStatus;
-
-        if (_ammoReserveText != null)
-            _ammoReserveText.text = shooting.IsReloading()
-                ? "—"
-                : shooting.GetMaxAmmo().ToString();
-
-        if (_reloadHintText != null)
+        if (_ammoCurrentText != null) 
+        {
+            if (shooting.IsUsingKnife())
+            {
+                _ammoCurrentText.text = "KNIFE";
+            }
+            else
+            {
+                _ammoCurrentText.text = shooting.IsReloading() ? "RELOADING" : shooting.GetCurrentAmmo().ToString();
+            }
+        }
+        
+        if (_ammoReserveText != null) 
+        {
+            if (shooting.IsUsingKnife())
+            {
+                _ammoReserveText.text = "--";
+            }
+            else
+            {
+                _ammoReserveText.text = shooting.IsReloading() ? "-" : shooting.GetReserveAmmo().ToString();
+            }
+        }
+        
+        if (_reloadHintText != null) 
+        {
+            _reloadHintText.text = shooting.IsUsingKnife() ? "1/2/Q/TAB SWITCH" : "R=RELOAD  2/Q/TAB=KNIFE";
             _reloadHintText.color = shooting.IsReloading() ? CAmberText : CVeryMuted;
+        }
     }
-
-    // ─── BUILD ───────────────────────────────────────────────────────────────
 
     void BuildHUD()
     {
-        GameObject existingHud = GameObject.Find("HUD Canvas");
-        if (existingHud != null)
+        // Limpa o HUD anterior se existir
+        if (_hudCanvasRoot != null)
         {
-            Destroy(existingHud);
+            Destroy(_hudCanvasRoot);
         }
 
         GameObject cvGO = new GameObject("HUD Canvas");
         _hudCanvasRoot = cvGO;
-
+        _hudBasePos = cvGO.transform.position;
         Canvas cv = cvGO.AddComponent<Canvas>();
-        cv.renderMode = RenderMode.ScreenSpaceOverlay;
-        cv.sortingOrder = 15;
-
+        cv.renderMode = RenderMode.ScreenSpaceOverlay; cv.sortingOrder = 15;
         CanvasScaler cs = cvGO.AddComponent<CanvasScaler>();
         cs.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        cs.referenceResolution = new Vector2(1920f, 1080f);
-        cs.matchWidthOrHeight = 0.45f;
-
+        cs.referenceResolution = new Vector2(1920f, 1080f); cs.matchWidthOrHeight = 0.45f;
         cvGO.AddComponent<GraphicRaycaster>();
 
         BuildTopLeft(cvGO.transform);
@@ -142,253 +170,59 @@ public class UIManager : MonoBehaviour
         BuildDamageVignette(cvGO.transform);
     }
 
-    public void EnsureRuntimeHud()
-    {
-        bool hudMissing = _hudCanvasRoot == null
-            || !_hudCanvasRoot.activeInHierarchy
-            || _hudCanvasRoot.GetComponent<Canvas>() == null;
-
-        if (!hudMissing)
-        {
-            return;
-        }
-
-        RemoveLegacyHudChildren();
-        BuildHUD();
-        EnsureCrosshairPresent();
-    }
-
-    void RemoveLegacyHudChildren()
-    {
-        string[] legacyHudRoots =
-        {
-            "Health Text",
-            "Health Bar",
-            "Ammo Text",
-            "Score Text",
-            "Supplies Text",
-            "Pressure Text",
-            "Objective Text",
-            "Prompt Text",
-            "Message Text",
-            "Game Over Panel"
-        };
-
-        for (int i = transform.childCount - 1; i >= 0; i--)
-        {
-            Transform child = transform.GetChild(i);
-            for (int j = 0; j < legacyHudRoots.Length; j++)
-            {
-                if (child.name == legacyHudRoots[j])
-                {
-                    Destroy(child.gameObject);
-                    break;
-                }
-            }
-        }
-    }
-
-    void EnsureCrosshairPresent()
-    {
-        if (FindFirstObjectByType<Crosshair>() != null)
-        {
-            return;
-        }
-
-        GameObject canvasObject = GameObject.Find("Crosshair Canvas");
-        if (canvasObject == null)
-        {
-            canvasObject = new GameObject("Crosshair Canvas");
-        }
-
-        Canvas canvas = canvasObject.GetComponent<Canvas>();
-        if (canvas == null)
-        {
-            canvas = canvasObject.AddComponent<Canvas>();
-        }
-
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 30;
-
-        CanvasScaler scaler = canvasObject.GetComponent<CanvasScaler>();
-        if (scaler == null)
-        {
-            scaler = canvasObject.AddComponent<CanvasScaler>();
-        }
-
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-
-        if (canvasObject.GetComponent<GraphicRaycaster>() == null)
-        {
-            canvasObject.AddComponent<GraphicRaycaster>();
-        }
-
-        for (int i = canvasObject.transform.childCount - 1; i >= 0; i--)
-        {
-            Destroy(canvasObject.transform.GetChild(i).gameObject);
-        }
-
-        GameObject crosshairObject = new GameObject("Crosshair");
-        crosshairObject.transform.SetParent(canvasObject.transform, false);
-
-        RectTransform rect = crosshairObject.AddComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.5f);
-        rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = Vector2.zero;
-        rect.sizeDelta = new Vector2(64f, 64f);
-
-        crosshairObject.AddComponent<Crosshair>();
-    }
-
     void BuildTopLeft(Transform cv)
     {
         RectTransform root = MakeRect("TL", cv, TL, TL, TL, new Vector2(24, -24), new Vector2(360, 180));
-
-        _zoneText = MakeTMP("Zone", root, "ZONE: —", 10f, CVeryMuted,
-            TL, TL, TL, new Vector2(0, 0), new Vector2(360, 18));
-        _zoneText.fontStyle = FontStyles.UpperCase;
-        _zoneText.characterSpacing = 2f;
-
-        Image panel = MakeImage("ObjPanel", root, CPanelBg,
-            TL, TR, TL, new Vector2(0, -24), new Vector2(0, 150));
-        AddOutline(panel);
-
+        _zoneText = MakeTMP("Zone", root, "ZONE", 10f, CVeryMuted, TL, TL, TL, new Vector2(0, 0), new Vector2(360, 18));
+        Image panel = MakeImage("ObjPanel", root, CPanelBg, TL, TR, TL, new Vector2(0, -24), new Vector2(0, 150));
         RectTransform p = panel.rectTransform;
-
-        MakeTMP("ObjLabel", p, "OBJECTIVES", 9f, CMuted,
-            TL, TR, TL, new Vector2(12, -10), new Vector2(-24, 16))
-            .characterSpacing = 1.5f;
-
-        _objectiveText = MakeTMP("ObjText", p, "—", 11f, new Color(1,1,1,0.75f),
-            TL, TR, TL, new Vector2(12, -30), new Vector2(-24, 104));
-        _objectiveText.textWrappingMode = TextWrappingModes.Normal;
-        _objectiveText.overflowMode = TextOverflowModes.Ellipsis;
-        _objectiveText.lineSpacing = 5f;
+        MakeTMP("ObjLabel", p, "OBJECTIVES", 9f, CMuted, TL, TR, TL, new Vector2(12, -10), new Vector2(-24, 16));
+        _objectiveText = MakeTMP("ObjText", p, "-", 11f, new Color(1,1,1,0.75f), TL, TR, TL, new Vector2(12, -30), new Vector2(-24, 104));
     }
 
     void BuildTopRight(Transform cv)
     {
-        RectTransform root = MakeRect("TR", cv, TR, TR, TR, new Vector2(-24, -24), new Vector2(220, 98));
-
-        Image panel = MakeImage("ScorePanel", root, CPanelBg,
-            TR, TR, TR, Vector2.zero, new Vector2(220, 98));
-        AddOutline(panel);
-
+        RectTransform root = MakeRect("TR", cv, TR, TR, TR, new Vector2(-24, -24), new Vector2(280, 150));
+        Image panel = MakeImage("ScorePanel", root, CPanelBg, TR, TR, TR, Vector2.zero, new Vector2(280, 150));
         RectTransform p = panel.rectTransform;
-
-        MakeTMP("ScoreLabel", p, "SCORE", 9f, CMuted,
-            TR, TR, TR, new Vector2(-12, -10), new Vector2(200, 16))
-            .characterSpacing = 1.5f;
-
-        _scoreText = MakeTMP("ScoreVal", p, "0", 24f, Color.white,
-            TR, TR, TR, new Vector2(-12, -24), new Vector2(190, 30));
-        _scoreText.fontStyle = FontStyles.Bold;
+        MakeTMP("ScoreLabel", p, "SCORE", 9f, CMuted, TR, TR, TR, new Vector2(-12, -10), new Vector2(240, 16));
+        _scoreText = MakeTMP("ScoreVal", p, "0", 24f, Color.white, TR, TR, TR, new Vector2(-12, -24), new Vector2(220, 30));
         _scoreText.alignment = TextAlignmentOptions.Right;
 
-        Image wavePill = MakeImage("WavePill", p, CWaveBg,
-            TR, TR, TR, new Vector2(-12, -66), new Vector2(150, 20));
-        wavePill.rectTransform.pivot = TR;
-        wavePill.GetComponent<RectTransform>().sizeDelta = new Vector2(150, 20);
-        var wr = wavePill.GetComponent<RectTransform>();
-        wr.anchorMin = TR; wr.anchorMax = TR; wr.pivot = TR;
-        wr.anchoredPosition = new Vector2(-12, -66);
-        wr.sizeDelta = new Vector2(150, 20);
-        _wavePillBg = wavePill;
+        _wavePillBg = MakeImage("WavePill", p, CWaveBg, TR, TR, TR, new Vector2(-12, -62), new Vector2(170, 30));
+        _waveText = MakeTMP("WaveText", _wavePillBg.rectTransform, "WAVE 0 - T1", 12f, CWaveText, MC, MC, MC, Vector2.zero, new Vector2(150, 20));
+        _waveText.alignment = TextAlignmentOptions.Center;
 
-        _waveText = MakeTMP("WaveText", wavePill.rectTransform, "PRESSURE: LOW",
-            9.5f, CWaveText, TR, TR, TR, new Vector2(-8, -2), new Vector2(-14, 16));
-        _waveText.characterSpacing = 1f;
-        _waveText.alignment = TextAlignmentOptions.Right;
+        _suppliesText = MakeTMP("Supplies", p, "Supplies: 0/0", 12f, CSupplies, TR, TR, TR, new Vector2(-12, -98), new Vector2(240, 20));
+        _suppliesText.alignment = TextAlignmentOptions.Right;
     }
 
     void BuildBottomLeft(Transform cv)
     {
-        Image panel = MakeImage("BL Panel", cv, CPanelBg,
-            BL, BL, BL, new Vector2(24, 24), new Vector2(360, 108));
-        AddOutline(panel);
+        RectTransform root = MakeRect("BL", cv, BL, BL, BL, new Vector2(24, 24), new Vector2(400, 120));
+        Image panel = MakeImage("HealthPanel", root, CPanelBg, BL, BR, BL, Vector2.zero, new Vector2(0, 80));
         RectTransform p = panel.rectTransform;
+        MakeTMP("HLabel", p, "HEALTH", 9f, CMuted, TL, TL, TL, new Vector2(12, -10), new Vector2(100, 16));
+        _healthValueText = MakeTMP("HVal", p, "100", 22f, Color.white, TL, TL, TL, new Vector2(12, -24), new Vector2(80, 30));
+        _healthBarFill = MakeImage("Bar", p, CHealthGreen, TL, TL, TL, new Vector2(80, -26), new Vector2(300, 24));
 
-        // health label
-        MakeTMP("HpLabel", p, "HEALTH", 9f, CMuted,
-            TL, TL, TL, new Vector2(12, -10), new Vector2(90, 16))
-            .characterSpacing = 1.5f;
-
-        // hp value
-        _healthValueText = MakeTMP("HpVal", p, "100", 28f, CHealthGreen,
-            TL, TL, TL, new Vector2(12, -24), new Vector2(96, 30));
-        _healthValueText.fontStyle = FontStyles.Bold;
-
-        // /100
-        MakeTMP("HpMax", p, "/ 100", 12f, CVeryMuted,
-            TL, TL, TL, new Vector2(74, -31), new Vector2(56, 18));
-
-        // health bar bg
-        Image barBg = MakeImage("BarBg", p, new Color(1,1,1,0.1f),
-            TL, TL, TL, new Vector2(12, -58), new Vector2(210, 8));
-        barBg.rectTransform.pivot = new Vector2(0, 0.5f);
-
-        // health bar fill (Filled image)
-        _healthBarFill = MakeImage("BarFill", barBg.rectTransform, CHealthGreen,
-            BL, TL, new Vector2(0,0.5f), Vector2.zero, new Vector2(210, 8));
-        _healthBarFill.type = Image.Type.Filled;
-        _healthBarFill.fillMethod = Image.FillMethod.Horizontal;
-        _healthBarFill.fillAmount = 1f;
-
-        // medkits label
-        MakeTMP("MkLabel", p, "MEDKITS", 9f, CMuted,
-            TL, TL, TL, new Vector2(236, -10), new Vector2(110, 16))
-            .characterSpacing = 1.5f;
-
-        // medkit segments
+        // Medkit Segments
         _medkitSegs = new Image[MedkitMax];
         for (int i = 0; i < MedkitMax; i++)
         {
-            Image seg = MakeImage($"Mk{i}", p, CHealthGreen,
-                TL, TL, TL, new Vector2(236 + i * 24, -28), new Vector2(18, 22));
-            _medkitSegs[i] = seg;
+            _medkitSegs[i] = MakeImage("Med_" + i, p, CMedEmpty, TL, TL, TL, new Vector2(12 + i * 22, -60), new Vector2(18, 10));
         }
-
-        // supplies row
-        _suppliesText = MakeTMP("Supplies", p, "AMMO 0  FOOD 0  0.0/20 KG",
-            10f, CSupplies, TL, TL, TL, new Vector2(12, -82), new Vector2(336, 18));
-        _suppliesText.characterSpacing = 0.5f;
     }
 
     void BuildBottomRight(Transform cv)
     {
-        Image panel = MakeImage("BR Panel", cv, CPanelBg,
-            BR, BR, BR, new Vector2(-24, 24), new Vector2(250, 108));
-        AddOutline(panel);
+        RectTransform root = MakeRect("BR", cv, BR, BR, BR, new Vector2(-24, 24), new Vector2(300, 120));
+        Image panel = MakeImage("AmmoPanel", root, CPanelBg, BR, BR, BR, Vector2.zero, new Vector2(220, 100));
         RectTransform p = panel.rectTransform;
-
-        MakeTMP("AmmoLabel", p, "AMMO", 9f, CMuted,
-            TR, TR, TR, new Vector2(-12, -10), new Vector2(226, 16))
-            .characterSpacing = 1.5f;
-
-        // current ammo — large
-        _ammoCurrentText = MakeTMP("AmmoCur", p, "30", 50f, Color.white,
-            TR, TR, TR, new Vector2(-100, -20), new Vector2(120, 56));
-        _ammoCurrentText.fontStyle = FontStyles.Bold;
+        _ammoCurrentText = MakeTMP("Ammo", p, "30", 42f, Color.white, TR, TR, TR, new Vector2(-60, -10), new Vector2(120, 60));
         _ammoCurrentText.alignment = TextAlignmentOptions.Right;
-
-        // separator /
-        MakeTMP("AmmoSep", p, "/", 22f, CVeryMuted,
-            TR, TR, TR, new Vector2(-96, -40), new Vector2(24, 32))
-            .alignment = TextAlignmentOptions.Center;
-
-        // reserve ammo — smaller
-        _ammoReserveText = MakeTMP("AmmoRes", p, "120", 22f,
-            new Color(1,1,1,0.55f), TR, TR, TR,
-            new Vector2(-12, -36), new Vector2(72, 30));
-        _ammoReserveText.alignment = TextAlignmentOptions.Right;
-
-        // reload hint
-        _reloadHintText = MakeTMP("ReloadHint", p, "[ R ]  RELOAD", 9.5f,
-            CVeryMuted, TR, TR, TR, new Vector2(-12, -86), new Vector2(220, 16));
-        _reloadHintText.characterSpacing = 1f;
+        _ammoReserveText = MakeTMP("Res", p, "90", 18f, CMuted, TR, TR, TR, new Vector2(-12, -24), new Vector2(60, 30));
+        _reloadHintText = MakeTMP("Hint", p, "R=RELOAD  2/Q/TAB=KNIFE", 10f, CVeryMuted, BR, BR, BR, new Vector2(-10, 8), new Vector2(210, 16));
         _reloadHintText.alignment = TextAlignmentOptions.Right;
     }
 
@@ -396,231 +230,133 @@ public class UIManager : MonoBehaviour
     {
         _promptGO = new GameObject("Prompt");
         _promptGO.transform.SetParent(cv, false);
-        RectTransform rt = _promptGO.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 0f);
-        rt.anchorMax = new Vector2(0.5f, 0f);
-        rt.pivot     = new Vector2(0.5f, 0f);
-        rt.anchoredPosition = new Vector2(0f, 24f);
-        rt.sizeDelta = new Vector2(600f, 40f);
-
-        Image bg = _promptGO.AddComponent<Image>();
-        bg.color = new Color(0f, 0f, 0f, 0.68f);
-
-        _promptText = MakeTMP("PromptText", rt, "", 13f, Color.white,
-            BL, BR, new Vector2(0.5f, 0.5f), new Vector2(0f, -2f), new Vector2(-28, -6f));
-        _promptText.textWrappingMode = TextWrappingModes.Normal;
+        _promptText = MakeTMP("T", _promptGO.transform, "PRESS E TO INTERACT", 14f, Color.white, MC, MC, MC, new Vector2(0, -100), new Vector2(600, 40));
         _promptText.alignment = TextAlignmentOptions.Center;
-        _promptText.characterSpacing = 0.5f;
-        _promptGO.SetActive(false);
     }
 
     void BuildMessage(Transform cv)
     {
-        _messageText = MakeTMP("MsgText", cv, "", 16f, Color.white,
-            new Vector2(0.5f, 0.73f), new Vector2(0.5f, 0.73f),
-            new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(760f, 40f));
-        _messageText.textWrappingMode = TextWrappingModes.Normal;
+        _messageText = MakeTMP("Msg", cv, "", 18f, CAccent, MC, MC, MC, new Vector2(0, 200), new Vector2(800, 60));
         _messageText.alignment = TextAlignmentOptions.Center;
-        _messageText.fontStyle = FontStyles.Bold;
-        _messageText.gameObject.SetActive(false);
     }
 
     void BuildDamageVignette(Transform cv)
     {
-        _damageVignette = MakeImage("Vignette", cv, new Color(0.86f, 0.1f, 0.1f, 0f),
-            BL, TR, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
-        _damageVignette.rectTransform.anchorMin = Vector2.zero;
-        _damageVignette.rectTransform.anchorMax = Vector2.one;
-        _damageVignette.rectTransform.sizeDelta = Vector2.zero;
-        _damageVignette.gameObject.SetActive(false);
+        _damageVignette = MakeImage("Vig", cv, new Color(1,0,0,0), BL, TR, MC, Vector2.zero, Vector2.zero);
+        _damageVignette.raycastTarget = false;
     }
 
-    // ─── PUBLIC API ──────────────────────────────────────────────────────────
-
-    public void UpdateHealth(int current, int max)
+    // Methods needed by other scripts
+    public void UpdateHealth(int cur, int max)
     {
-        _maxHealth = max;
-        if (_healthValueText != null) _healthValueText.text = current.ToString();
-        if (_healthBarFill    != null) _healthBarFill.fillAmount = max > 0 ? (float)current / max : 0f;
-
-        if (_healthValueText != null)
-        {
-            float ratio = max > 0 ? (float)current / max : 1f;
-            _healthValueText.color = ratio > 0.5f ? CHealthGreen
-                : ratio > 0.25f ? CAmberText
-                : new Color(0.94f, 0.27f, 0.27f, 1f);
-            if (_healthBarFill != null) _healthBarFill.color = _healthValueText.color;
-        }
+        if (_healthValueText != null) _healthValueText.text = cur.ToString();
+        if (_healthBarFill != null) _healthBarFill.rectTransform.sizeDelta = new Vector2(300f * ((float)cur / max), 24f);
     }
 
-    public void UpdateScore(int score)
-    {
-        if (_scoreText != null)
-            _scoreText.text = score.ToString("N0").Replace(",", " ");
-    }
-
-    public void UpdateWave(int wave)
-    {
-        if (_waveText == null) return;
-        _waveText.text = wave > 0 ? $"PRESSURE: {wave}" : "PRESSURE: LOW";
-    }
-
-    public void UpdateSupplies(string supplies)
-    {
-        if (_suppliesText != null) _suppliesText.text = supplies;
-    }
-
-    public void UpdateInventory(string inventory)
-    {
-        if (_suppliesText == null) return;
-        // parse "Meds:X Food:Y Ammo:Z ... W/MaxW"
-        // show ammo reserve, food, weight in the supplies row
-        _suppliesText.text = inventory;
-    }
-
-    public void UpdateMedkits(int count)
+    public void UpdateMedkits(int current)
     {
         if (_medkitSegs == null) return;
-        for (int i = 0; i < _medkitSegs.Length; i++)
-            if (_medkitSegs[i] != null)
-                _medkitSegs[i].color = i < count ? CHealthGreen : CMedEmpty;
-    }
-
-    public void UpdateObjective(string objective)
-    {
-        if (_zoneText != null || _objectiveText != null)
+        for (int i = 0; i < MedkitMax; i++)
         {
-            int newline = objective.IndexOf('\n');
-            if (newline >= 0)
-            {
-                if (_zoneText      != null) _zoneText.text      = objective.Substring(0, newline).ToUpper();
-                if (_objectiveText != null) _objectiveText.text = objective.Substring(newline + 1);
-            }
-            else
-            {
-                if (_objectiveText != null) _objectiveText.text = objective;
-            }
+            if (_medkitSegs[i] != null) _medkitSegs[i].color = i < current ? CHealthGreen : CMedEmpty;
         }
-    }
-
-    public void UpdatePrompt(string prompt)
-    {
-        if (_promptGO == null) return;
-        bool show = !string.IsNullOrWhiteSpace(prompt);
-        _promptGO.SetActive(show);
-        if (_promptText != null) _promptText.text = prompt;
-    }
-
-    public void ShowMessage(string message)
-    {
-        if (_messageText == null) return;
-        _messageText.text = message;
-        _messageText.gameObject.SetActive(true);
-        CancelInvoke(nameof(HideMessage));
-        Invoke(nameof(HideMessage), 3f);
     }
 
     public void ShowDamageIndicator()
     {
-        if (_damageVignette == null) return;
-        _damageVignette.gameObject.SetActive(true);
-        Color c = _damageVignette.color;
-        c.a = 0.38f;
-        _damageVignette.color = c;
-        CancelInvoke(nameof(FadeDamage));
-        Invoke(nameof(FadeDamage), 0.15f);
+        if (_damageVignette != null) StartCoroutine(FlashVignette());
+        _shakeIntensity = 0.2f;
     }
 
-    // Legacy fallback — GameOverScreen handles this now
-    public void ShowGameOver(int score)
+    IEnumerator FlashVignette()
     {
-        if (GameOverScreen.Instance != null)
-            GameOverScreen.Instance.ShowGameOver(score);
-    }
-
-    // ─── PRIVATE ─────────────────────────────────────────────────────────────
-
-    void HideMessage()
-    {
-        if (_messageText != null) _messageText.gameObject.SetActive(false);
-    }
-
-    void FadeDamage()
-    {
-        if (_damageVignette == null) return;
-        Color c = _damageVignette.color;
-        c.a = 0f;
-        _damageVignette.color = c;
-        _damageVignette.gameObject.SetActive(false);
-    }
-
-    void OnDestroy()
-    {
-        if (_hudCanvasRoot != null)
-            Destroy(_hudCanvasRoot);
-
-        if (Instance == this) Instance = null;
-    }
-
-    void OnDisable()
-    {
-        if (Instance == this)
+        float t = 0;
+        while (t < 0.2f)
         {
-            Instance = null;
+            t += Time.deltaTime;
+            _damageVignette.color = new Color(1, 0, 0, Mathf.Lerp(0, 0.4f, t / 0.2f));
+            yield return null;
+        }
+        while (t > 0)
+        {
+            t -= Time.deltaTime;
+            _damageVignette.color = new Color(1, 0, 0, Mathf.Lerp(0, 0.4f, t / 0.2f));
+            yield return null;
+        }
+        _damageVignette.color = new Color(1, 0, 0, 0);
+    }
+
+    public void ShowConfigMenu()
+    {
+        // Se estamos no menu principal, apenas ativa
+        if (MainMenuManager.Instance != null)
+        {
+            MainMenuManager.Instance.gameObject.SetActive(true);
+            return;
+        }
+
+        // Se estamos no jogo e queremos mostrar o menu de configuração/pausa
+        // Criamos um menu de configuração temporário ou usamos o PauseMenu
+        if (PauseMenu.Instance != null)
+        {
+            // Se o GameManager está em Playing, alternamos para pausa
+            if (GameManager.Instance != null &&
+                GameManager.Instance.CurrentState == GameManager.GameState.Playing)
+            {
+                PauseMenu.Instance.Pause();
+            }
         }
     }
 
-    // ─── HELPERS ─────────────────────────────────────────────────────────────
+    public void EnsureRuntimeHud() { BuildHUD(); }
 
-    static readonly Vector2 TL = new Vector2(0f, 1f);
-    static readonly Vector2 TR = new Vector2(1f, 1f);
-    static readonly Vector2 BL = new Vector2(0f, 0f);
-    static readonly Vector2 BR = new Vector2(1f, 0f);
-
-    static RectTransform MakeRect(string name, Transform parent,
-        Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
-        Vector2 pos, Vector2 size)
+    public void UpdateScore(int s) { if (_scoreText != null) _scoreText.text = s.ToString(); }
+    public void UpdateWave(int w)
     {
-        GameObject go = new GameObject(name);
-        go.transform.SetParent(parent, false);
+        if (_waveText != null) _waveText.text = "WAVE " + w;
+    }
+
+    public void UpdateWave(int wave, int tier, int alive, int target)
+    {
+        if (_waveText != null)
+        {
+            _waveText.text = $"WAVE {wave} - T{tier}  {alive}/{Mathf.Max(target, 0)}";
+        }
+
+        if (_wavePillBg != null)
+        {
+            _wavePillBg.color = tier switch
+            {
+                1 => new Color(0.937f, 0.267f, 0.267f, 0.22f),
+                2 => new Color(0.98f, 0.54f, 0.10f, 0.25f),
+                _ => new Color(0.90f, 0.09f, 0.09f, 0.30f)
+            };
+        }
+    }
+    public void UpdateSupplies(string s) { if (_suppliesText != null) _suppliesText.text = s; }
+    public void UpdateObjective(string o) { if (_objectiveText != null) _objectiveText.text = o; }
+    public void UpdatePrompt(string p) { if (_promptGO != null) _promptGO.SetActive(!string.IsNullOrEmpty(p)); if (_promptText != null) _promptText.text = p; }
+
+    public void ShowMessage(string m) { if (_messageText != null) { _messageText.text = m; StartCoroutine(ClearMsg()); } }
+    IEnumerator ClearMsg() { yield return new WaitForSeconds(3f); if (_messageText != null) _messageText.text = ""; }
+
+    static RectTransform MakeRect(string n, Transform p, Vector2 aMin, Vector2 aMax, Vector2 pivot, Vector2 pos, Vector2 size)
+    {
+        GameObject go = new GameObject(n); go.transform.SetParent(p, false);
         RectTransform rt = go.AddComponent<RectTransform>();
-        rt.anchorMin = anchorMin;
-        rt.anchorMax = anchorMax;
-        rt.pivot = pivot;
-        rt.anchoredPosition = pos;
-        rt.sizeDelta = size;
-        return rt;
+        rt.anchorMin = aMin; rt.anchorMax = aMax; rt.pivot = pivot;
+        rt.anchoredPosition = pos; rt.sizeDelta = size; return rt;
     }
 
-    static Image MakeImage(string name, Transform parent, Color color,
-        Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
-        Vector2 pos, Vector2 size)
+    static Image MakeImage(string n, Transform p, Color c, Vector2 aMin, Vector2 aMax, Vector2 pivot, Vector2 pos, Vector2 size)
+    { var rt = MakeRect(n, p, aMin, aMax, pivot, pos, size); var img = rt.gameObject.AddComponent<Image>(); img.color = c; return img; }
+
+    static TextMeshProUGUI MakeTMP(string n, Transform p, string txt, float fs, Color c, Vector2 aMin, Vector2 aMax, Vector2 pivot, Vector2 pos, Vector2 size)
     {
-        RectTransform rt = MakeRect(name, parent, anchorMin, anchorMax, pivot, pos, size);
-        Image img = rt.gameObject.AddComponent<Image>();
-        img.color = color;
-        return img;
+        var rt = MakeRect(n, p, aMin, aMax, pivot, pos, size);
+        var t = rt.gameObject.AddComponent<TextMeshProUGUI>(); t.text = txt; t.fontSize = fs; t.color = c;
+        t.textWrappingMode = TextWrappingModes.Normal; t.raycastTarget = false; return t;
     }
 
-    static TextMeshProUGUI MakeTMP(string name, Transform parent, string text,
-        float fontSize, Color color,
-        Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot,
-        Vector2 pos, Vector2 size)
-    {
-        RectTransform rt = MakeRect(name, parent, anchorMin, anchorMax, pivot, pos, size);
-        TextMeshProUGUI tmp = rt.gameObject.AddComponent<TextMeshProUGUI>();
-        tmp.text = text;
-        tmp.fontSize = fontSize;
-        tmp.color = color;
-        tmp.textWrappingMode = TextWrappingModes.NoWrap;
-        tmp.overflowMode = TextOverflowModes.Overflow;
-        return tmp;
-    }
-
-    static void AddOutline(Image img)
-    {
-        Outline o = img.gameObject.AddComponent<Outline>();
-        o.effectColor = new Color(1f, 1f, 1f, 0.08f);
-        o.effectDistance = new Vector2(1f, -1f);
-    }
+    static void AddOutline(Image img) { var o = img.gameObject.AddComponent<Outline>(); o.effectColor = new Color(1,1,1,0.1f); }
 }

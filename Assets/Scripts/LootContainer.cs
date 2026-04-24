@@ -92,7 +92,7 @@ public class LootContainer : MonoBehaviour, IInteractable
             cachedRenderer.sharedMaterial.color = new Color(0.25f, 0.25f, 0.25f);
         }
 
-        GameManager.Instance?.CollectSupply(zoneName, supplyType, amount);
+        GameManager.Instance?.CollectSupply(zoneName);
         if (rarePickup)
         {
             UIManager.Instance?.ShowMessage($"Rare pickup: {displayName}");

@@ -1,4 +1,3 @@
-/* DESATIVADO — mapa gerado manualmente, não apagar este ficheiro
 #if UNITY_EDITOR
 using System.Linq;
 using UnityEditor;
@@ -37,7 +36,7 @@ public static class PrototypeSceneGenerator
     static void BuildScene(bool force)
     {
         var scene = EditorSceneManager.GetActiveScene();
-        if (scene.name != "SampleScene")
+        if (scene.name != "Mapa_EXT01")
         {
             return;
         }
@@ -47,14 +46,6 @@ public static class PrototypeSceneGenerator
         if (!force && !needsVersionUpgrade && scene.rootCount > 3)
         {
             return;
-        }
-
-        if (force || needsVersionUpgrade)
-        {
-            foreach (var root in scene.GetRootGameObjects().ToArray())
-            {
-                Object.DestroyImmediate(root);
-            }
         }
 
         if (!SceneBootstrapper.ShouldBuildActiveScene())
@@ -79,8 +70,7 @@ public static class PrototypeSceneGenerator
             }
         }
 
-        return scene.rootCount > 3;
+        return true;
     }
 }
 #endif
-*/ // fim do bloco DESATIVADO
