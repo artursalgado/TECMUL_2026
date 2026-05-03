@@ -64,16 +64,21 @@ public class IntroScreen : MonoBehaviour
         GameObject canvasGO = new GameObject("IntroCanvas");
         canvas = canvasGO.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 200;
+        canvas.sortingOrder = 500;
         CanvasScaler scaler = canvasGO.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         canvasGO.AddComponent<GraphicRaycaster>();
 
-        // Fundo escuro com tom sépia/quente
-        painelIntro = CriarPainel(canvasGO.transform, "Fundo",
-            new Color(0.06f, 0.04f, 0.03f, 0.97f),
-            Vector2.zero, new Vector2(1920, 1080));
+        // Fundo fullscreen real com anchors
+        painelIntro = new GameObject("Fundo");
+        painelIntro.transform.SetParent(canvasGO.transform, false);
+        RectTransform fundoRT = painelIntro.AddComponent<RectTransform>();
+        fundoRT.anchorMin = Vector2.zero;
+        fundoRT.anchorMax = Vector2.one;
+        fundoRT.offsetMin = Vector2.zero;
+        fundoRT.offsetMax = Vector2.zero;
+        painelIntro.AddComponent<Image>().color = new Color(0.06f, 0.04f, 0.03f, 1f);
 
         // Linha decorativa topo
         CriarPainel(canvasGO.transform, "LinhaTopo",
@@ -103,21 +108,22 @@ public class IntroScreen : MonoBehaviour
         GameObject textoGO = new GameObject("TextoHistoria");
         textoGO.transform.SetParent(canvasGO.transform, false);
         RectTransform textoRT = textoGO.AddComponent<RectTransform>();
-        textoRT.anchoredPosition = new Vector2(0, 20);
-        textoRT.sizeDelta = new Vector2(780, 800);
+        textoRT.anchoredPosition = new Vector2(0, 60);
+        textoRT.sizeDelta = new Vector2(780, 700);
         textoHistoria = textoGO.AddComponent<TextMeshProUGUI>();
         textoHistoria.text = "";
-        textoHistoria.fontSize = 38;
+        textoHistoria.fontSize = 32;
         textoHistoria.color = new Color(0.92f, 0.87f, 0.75f, 1f);
         textoHistoria.alignment = TextAlignmentOptions.Center;
-        textoHistoria.lineSpacing = 8f;
+        textoHistoria.lineSpacing = 6f;
+        textoHistoria.overflowMode = TextOverflowModes.Truncate;
         if (fonteManuscrita != null) textoHistoria.font = fonteManuscrita;
 
         // Botão "Iniciar" (aparece no fim)
         GameObject btnGO = new GameObject("BotaoIniciar");
         btnGO.transform.SetParent(canvasGO.transform, false);
         RectTransform btnRT = btnGO.AddComponent<RectTransform>();
-        btnRT.anchoredPosition = new Vector2(0, -430);
+        btnRT.anchoredPosition = new Vector2(0, -400);
         btnRT.sizeDelta = new Vector2(320, 55);
         Image btnImg = btnGO.AddComponent<Image>();
         btnImg.color = new Color(0.55f, 0.2f, 0.05f, 0.9f);

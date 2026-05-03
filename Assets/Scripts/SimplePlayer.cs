@@ -4,16 +4,24 @@ using UnityEngine;
 public class SimplePlayer : MonoBehaviour
 {
     [Header("Movimento")]
-    public float velocidade = 5f;
-    public float gravidade = -9.81f;
+    public float velocidade = 3.5f;
+    public float velocidadeSprint = 5.5f;
+    public float gravidade = -20f;
+
+    [Header("Salto")]
+    public float forcaSalto = 1.8f;
 
     [Header("Câmara")]
     public float sensibilidadeRato = 2f;
-    
+
     private CharacterController _controller;
     private Transform _cameraTransform;
     private float _rotacaoVertical = 0f;
     private Vector3 _velocidadeQueda;
+    private float _recoilOffset = 0f;
+    private AudioSource audioPassos;
+
+    public bool EmSprint => Input.GetKey(KeyCode.LeftShift) && _controller.isGrounded;
 
     void Start()
     {
@@ -21,17 +29,16 @@ public class SimplePlayer : MonoBehaviour
         Time.timeScale = 1f;
 
         _controller = GetComponent<CharacterController>();
+        AudioSource[] sources = GetComponents<AudioSource>();
+        if (sources.Length > 0) audioPassos = sources[0];
         
-        // Tenta encontrar a câmara filha do jogador
-        Camera cam = GetComponentInChildren<Camera>();
-        if (cam != null)
+        if (Camera.main != null)
         {
-            _cameraTransform = cam.transform;
-            Debug.Log("SimplePlayer: Câmara encontrada com sucesso!");
+            _cameraTransform = Camera.main.transform;
         }
         else
         {
-            Debug.LogError("SimplePlayer: Nenhuma câmara encontrada dentro do Player!");
+            Debug.LogError("SimplePlayer: MainCamera não encontrada! Certifica que a câmara tem a tag 'MainCamera'.");
         }
 
         // Esconde e prende o rato no centro do ecrã (apenas durante o jogo)
@@ -60,14 +67,25 @@ public class SimplePlayer : MonoBehaviour
         float x = Input.GetAxis("Horizontal");
         float z = Input.GetAxis("Vertical");
 
+        float velAtual = EmSprint ? velocidadeSprint : velocidade;
         Vector3 movimento = transform.right * x + transform.forward * z;
-        _controller.Move(movimento * velocidade * Time.deltaTime);
+        _controller.Move(movimento * velAtual * Time.deltaTime);
 
-        // Aplica gravidade para não flutuar
-        if (_controller.isGrounded && _velocidadeQueda.y < 0)
+        // Som de passos
+        bool emMovimento = (Mathf.Abs(x) > 0.1f || Mathf.Abs(z) > 0.1f) && _controller.isGrounded;
+        if (audioPassos != null)
         {
-            _velocidadeQueda.y = -2f; // Mantém o jogador preso ao chão
+            audioPassos.pitch = EmSprint ? 1.4f : 1f;
+            if (emMovimento && !audioPassos.isPlaying) audioPassos.Play();
+            else if (!emMovimento && audioPassos.isPlaying) audioPassos.Stop();
         }
+
+        if (_controller.isGrounded && _velocidadeQueda.y < 0)
+            _velocidadeQueda.y = -2f;
+
+        // Salto
+        if (Input.GetKeyDown(KeyCode.Space) && _controller.isGrounded)
+            _velocidadeQueda.y = Mathf.Sqrt(forcaSalto * -2f * gravidade);
 
         _velocidadeQueda.y += gravidade * Time.deltaTime;
         _controller.Move(_velocidadeQueda * Time.deltaTime);
@@ -84,6 +102,12 @@ public class SimplePlayer : MonoBehaviour
         // Roda a câmara para cima e para baixo (Eixo X) com limite
         _rotacaoVertical -= mouseY;
         _rotacaoVertical = Mathf.Clamp(_rotacaoVertical, -90f, 90f);
-        _cameraTransform.localEulerAngles = Vector3.right * _rotacaoVertical;
+        _recoilOffset = Mathf.Lerp(_recoilOffset, 0f, Time.deltaTime * 10f);
+        _cameraTransform.localEulerAngles = Vector3.right * (_rotacaoVertical - _recoilOffset);
+    }
+
+    public void AddRecoil(float graus)
+    {
+        _recoilOffset = Mathf.Clamp(_recoilOffset + graus, 0f, 20f);
     }
 }

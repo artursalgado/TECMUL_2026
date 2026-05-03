@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections;
 
 public class Pistol : MonoBehaviour
 {
@@ -8,18 +9,94 @@ public class Pistol : MonoBehaviour
     public float cooldown = 0.4f;
     public int municaoMax = 12;
 
+    [Header("Recoil")]
+    public float recoilGraus = 2.5f;
+
+    [Header("Recarga")]
+    public float tempoRecarga = 1.5f;
+
     [HideInInspector] public int municaoAtual;
 
     private float tempoCooldown = 0f;
+    private bool aRecarregar = false;
     private Camera cam;
     private WeaponSystem weaponSystem;
+    private SimplePlayer simplePlayer;
+    private HUDManager hud;
+
+    // Visuais
+    private Transform muzzlePoint;
+    private Light muzzleLight;
+    private GameObject muzzleFlashSphere;
+    private LineRenderer trailRenderer;
+    private AudioSource audioSource;
 
     void Start()
     {
         municaoAtual = municaoMax;
         cam = GetComponentInParent<Camera>();
         if (cam == null) cam = Camera.main;
+        audioSource = GetComponent<AudioSource>();
         weaponSystem = GetComponentInParent<WeaponSystem>();
+        if (weaponSystem == null) weaponSystem = FindFirstObjectByType<WeaponSystem>();
+        simplePlayer = FindFirstObjectByType<SimplePlayer>();
+        hud = FindFirstObjectByType<HUDManager>();
+
+        CriarVisuais();
+    }
+
+    void CriarVisuais()
+    {
+        // Ponto da boca do cano
+        GameObject mp = new GameObject("MuzzlePoint");
+        mp.transform.SetParent(transform);
+        mp.transform.localPosition = new Vector3(0f, 0f, 0.4f);
+        muzzlePoint = mp.transform;
+
+        // Luz de flash
+        GameObject lightGO = new GameObject("MuzzleLight");
+        lightGO.transform.SetParent(muzzlePoint);
+        lightGO.transform.localPosition = Vector3.zero;
+        muzzleLight = lightGO.AddComponent<Light>();
+        muzzleLight.type = LightType.Point;
+        muzzleLight.range = 5f;
+        muzzleLight.intensity = 15f;
+        muzzleLight.color = new Color(1f, 0.88f, 0.45f);
+        muzzleLight.shadows = LightShadows.None;
+        muzzleLight.enabled = false;
+
+        // Esfera visual de flash na boca do cano
+        muzzleFlashSphere = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        muzzleFlashSphere.transform.SetParent(muzzlePoint);
+        muzzleFlashSphere.transform.localPosition = Vector3.zero;
+        muzzleFlashSphere.transform.localScale = Vector3.one * 0.06f;
+        Destroy(muzzleFlashSphere.GetComponent<Collider>());
+        var r = muzzleFlashSphere.GetComponent<Renderer>();
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.receiveShadows = false;
+        Material mat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+        if (mat == null || mat.shader == null)
+            mat = new Material(Shader.Find("Unlit/Color"));
+        mat.color = new Color(1f, 0.95f, 0.5f);
+        r.material = mat;
+        muzzleFlashSphere.SetActive(false);
+
+        // LineRenderer para o risco da bala
+        GameObject trailGO = new GameObject("BulletTrail");
+        trailGO.transform.SetParent(transform);
+        trailRenderer = trailGO.AddComponent<LineRenderer>();
+        trailRenderer.positionCount = 2;
+        trailRenderer.startWidth = 0.018f;
+        trailRenderer.endWidth = 0.003f;
+        trailRenderer.useWorldSpace = true;
+        Material trailMat = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+        if (trailMat == null || trailMat.shader == null)
+            trailMat = new Material(Shader.Find("Sprites/Default"));
+        trailMat.color = new Color(1f, 0.95f, 0.65f);
+        trailRenderer.material = trailMat;
+        trailRenderer.startColor = new Color(1f, 0.95f, 0.65f, 1f);
+        trailRenderer.endColor   = new Color(1f, 0.95f, 0.65f, 0f);
+        trailRenderer.enabled = false;
     }
 
     void Update()
@@ -27,48 +104,133 @@ public class Pistol : MonoBehaviour
         if (tempoCooldown > 0)
             tempoCooldown -= Time.deltaTime;
 
-        // Recarregar com tecla R
         if (Input.GetKeyDown(KeyCode.R))
             Recarregar();
     }
 
     public void Disparar()
     {
+        if (aRecarregar) return;
         if (tempoCooldown > 0) return;
         if (municaoAtual <= 0)
         {
-            Debug.Log("[Pistola] Sem munição! Prima R para recarregar.");
+            if (hud != null) hud.MostrarAviso("SEM MUNICAO  —  [R] Recarregar");
             return;
         }
 
         tempoCooldown = cooldown;
         municaoAtual--;
 
-        // Atualiza HUD
         if (weaponSystem != null)
             weaponSystem.AtualizarMunicaoHUD(municaoAtual, municaoMax);
 
-        // Raycast do centro do ecrã
+        if (audioSource != null) audioSource.Play();
+        if (simplePlayer != null)
+            simplePlayer.AddRecoil(recoilGraus);
+
+        // Raycast
         Ray ray = cam.ScreenPointToRay(new Vector3(Screen.width / 2f, Screen.height / 2f, 0));
+        Vector3 pontoFinal = ray.origin + ray.direction * alcance;
+        bool acertou = false;
 
         if (Physics.Raycast(ray, out RaycastHit hit, alcance))
         {
+            pontoFinal = hit.point;
             ZombieAI zombie = hit.collider.GetComponentInParent<ZombieAI>();
             if (zombie != null)
             {
-                zombie.LevarDano(dano);
-                Debug.Log($"[Pistola] Acertou no zombie! Dano: {dano}");
+                float alturaHit = hit.point.y - zombie.transform.position.y;
+                bool headshot = alturaHit > 1.5f;
+                zombie.LevarDano(headshot ? dano * 4f : dano, hit.point);
+                acertou = true;
+                if (hud != null) hud.MostrarHitMarker();
+                if (headshot && hud != null) hud.MostrarHeadshot();
             }
+            // Marca de impacto no ponto de acerto
+            StartCoroutine(MarcaDeImpacto(hit.point, hit.normal));
         }
 
-        Debug.Log($"[Pistola] BANG! Munição: {municaoAtual}/{municaoMax}");
+        // Efeitos visuais
+        StartCoroutine(MuzzleFlash());
+        StartCoroutine(MostrarTrail(muzzlePoint.position, pontoFinal));
+    }
+
+    IEnumerator MuzzleFlash()
+    {
+        muzzleLight.enabled = true;
+        muzzleFlashSphere.SetActive(true);
+        yield return new WaitForSeconds(0.06f);
+        muzzleLight.enabled = false;
+        muzzleFlashSphere.SetActive(false);
+    }
+
+    IEnumerator MostrarTrail(Vector3 inicio, Vector3 fim)
+    {
+        trailRenderer.SetPosition(0, inicio);
+        trailRenderer.SetPosition(1, fim);
+        trailRenderer.enabled = true;
+
+        float duracao = 0.08f;
+        float t = 0f;
+        Color corInicio = new Color(1f, 0.95f, 0.65f, 1f);
+        Color corFim    = new Color(1f, 0.95f, 0.65f, 0f);
+
+        while (t < duracao)
+        {
+            t += Time.deltaTime;
+            float alpha = 1f - (t / duracao);
+            trailRenderer.startColor = new Color(corInicio.r, corInicio.g, corInicio.b, alpha);
+            trailRenderer.endColor   = new Color(corFim.r,   corFim.g,   corFim.b,   0f);
+            yield return null;
+        }
+
+        trailRenderer.enabled = false;
+    }
+
+    IEnumerator MarcaDeImpacto(Vector3 pos, Vector3 normal)
+    {
+        GameObject spark = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        Destroy(spark.GetComponent<Collider>());
+        spark.transform.position = pos + normal * 0.02f;
+        spark.transform.localScale = Vector3.one * 0.04f;
+        var r = spark.GetComponent<Renderer>();
+        r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        r.receiveShadows = false;
+        Material m = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
+        if (m == null || m.shader == null)
+            m = new Material(Shader.Find("Unlit/Color"));
+        m.color = new Color(1f, 0.8f, 0.2f);
+        r.material = m;
+
+        float t = 0f;
+        float dur = 0.15f;
+        while (t < dur)
+        {
+            t += Time.deltaTime;
+            float s = Mathf.Lerp(0.12f, 0.01f, t / dur);
+            spark.transform.localScale = Vector3.one * s;
+            yield return null;
+        }
+
+        Destroy(spark);
     }
 
     void Recarregar()
     {
+        if (aRecarregar || municaoAtual == municaoMax) return;
+        StartCoroutine(RecarregarCoroutine());
+    }
+
+    IEnumerator RecarregarCoroutine()
+    {
+        aRecarregar = true;
+        if (hud != null) hud.MostrarAviso("A RECARREGAR...");
+
+        yield return new WaitForSeconds(tempoRecarga);
+
         municaoAtual = municaoMax;
+        aRecarregar = false;
         if (weaponSystem != null)
             weaponSystem.AtualizarMunicaoHUD(municaoAtual, municaoMax);
-        Debug.Log("[Pistola] Recarregado!");
     }
 }

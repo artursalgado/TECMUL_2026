@@ -10,6 +10,9 @@ public class ZombieAI : MonoBehaviour
     public float distanciaDeAtaque = 2f;
     public float tempoEntreAtaques = 1.5f;
 
+    [Header("Efeitos")]
+    public GameObject bloodPrefab;
+
     private float vidaAtual;
     private NavMeshAgent agente;
     private Transform alvo;
@@ -17,13 +20,27 @@ public class ZombieAI : MonoBehaviour
     private float temporizadorAtaque;
     private Animator animador;
 
-    [HideInInspector] public WaveManager waveManager; // Atribuído automaticamente pelo WaveManager
+    [HideInInspector] public WaveManager waveManager;
+    private AudioSource audioSource;
 
     void Start()
     {
         vidaAtual = vidaMaxima;
         agente = GetComponent<NavMeshAgent>();
         animador = GetComponentInChildren<Animator>();
+        audioSource = GetComponent<AudioSource>();
+
+        if (audioSource != null)
+        {
+            audioSource.spatialBlend = 1f;       // som 3D
+            audioSource.minDistance = 3f;         // volume máximo a 3m
+            audioSource.maxDistance = 25f;        // ouve-se até 25m
+            audioSource.rolloffMode = AudioRolloffMode.Linear;
+            audioSource.loop = true;
+            audioSource.volume = 0.6f;
+            audioSource.pitch = Random.Range(0.85f, 1.15f); // variação entre zombies
+            audioSource.Play();
+        }
 
         agente.stoppingDistance = distanciaDeAtaque - 0.2f;
 
@@ -84,11 +101,19 @@ public class ZombieAI : MonoBehaviour
     void Atacar()
     {
         playerVida.TakeDamage(dano);
+        if (audioSource != null) audioSource.volume = 1f; // mais alto ao atacar
     }
 
-    public void LevarDano(float danoRecebido)
+    public void LevarDano(float danoRecebido, Vector3 posicaoImpacto = default)
     {
         vidaAtual -= danoRecebido;
+
+        if (bloodPrefab != null)
+        {
+            Vector3 pos = posicaoImpacto == default ? transform.position + Vector3.up : posicaoImpacto;
+            Instantiate(bloodPrefab, pos, Quaternion.identity);
+        }
+
         if (vidaAtual <= 0) Morrer();
     }
 

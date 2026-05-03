@@ -70,21 +70,21 @@ public class MainMenuController : MonoBehaviour
 
         // ── BOTÃO START MISSION ───────────────────────────────────
         CriarBotao(canvasGO.transform, "BotaoStart",
-            "▶  START MISSION",
+            "START MISSION",
             new Vector2(0, 20),
             new Color(0.7f, 0.05f, 0.05f, 1f),
             () => SceneManager.LoadScene("OpenWorld"));
 
         // ── BOTÃO QUIT ────────────────────────────────────────────
         CriarBotao(canvasGO.transform, "BotaoQuit",
-            "✕  QUIT",
+            "QUIT",
             new Vector2(0, -80),
             new Color(0.12f, 0.12f, 0.12f, 1f),
             () => Application.Quit());
 
         // ── CRÉDITOS ──────────────────────────────────────────────
         CriarTexto(canvasGO.transform, "Creditos",
-            "Artur Salgado  ·  Tiago Silva",
+            "Artur Salgado  ·  Tiago Costa",
             new Vector2(0, -420), new Vector2(800, 50),
             28, new Color(0.55f, 0.55f, 0.55f, 1f), FontStyles.Normal);
 
@@ -94,11 +94,11 @@ public class MainMenuController : MonoBehaviour
             new Vector2(880, -500), new Vector2(200, 40),
             22, new Color(0.35f, 0.35f, 0.35f, 1f), FontStyles.Normal);
 
-        // ── AVISO "SURVIVE ALL 5 WAVES" ──────────────────────────
+        // ── DESCRIÇÃO ─────────────────────────────────────────────
         CriarTexto(canvasGO.transform, "Descricao",
-            "SURVIVE ALL 5 WAVES",
-            new Vector2(0, -170), new Vector2(800, 50),
-            34, new Color(0.65f, 0.65f, 0.65f, 0.7f), FontStyles.Normal);
+            "ATIVA OS 3 GERADORES  |  ABRE O PORTÃO  |  ESCAPA",
+            new Vector2(0, -170), new Vector2(1100, 50),
+            28, new Color(0.65f, 0.65f, 0.65f, 0.7f), FontStyles.Normal);
 
         // Animação de pulsar no título
         StartCoroutine(PulsarTitulo(GameObject.Find("TituloKill").GetComponent<TextMeshProUGUI>()));

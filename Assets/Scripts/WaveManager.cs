@@ -30,6 +30,9 @@ public class WaveManager : MonoBehaviour
 
     void Start()
     {
+        if (UnityEngine.SceneManagement.SceneManager.GetActiveScene().name != "OpenWorld")
+            return;
+
         hud = FindFirstObjectByType<HUDManager>();
 
         GameObject playerObj = GameObject.FindGameObjectWithTag("Player");
@@ -37,8 +40,10 @@ public class WaveManager : MonoBehaviour
             jogador = playerObj.transform;
         else
             Debug.LogError("WaveManager: Player não encontrado! Coloque a Tag 'Player' no Player.");
+    }
 
-        // Começa a primeira horda após 3 segundos
+    public void IniciarJogo()
+    {
         Invoke(nameof(IniciarProximaHorda), 3f);
     }
 
